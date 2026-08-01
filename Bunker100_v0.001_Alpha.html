@@ -569,12 +569,43 @@ kbd {
 #touch[data-on="1"] { display: block; }
 #ui[data-started="0"] #hud, #ui[data-started="0"] #touch { display: none !important; }
 
-.stick { position: absolute; width: 0; height: 0; opacity: 0; transition: opacity .15s ease; --nx: 0px; --ny: 0px; }
+/* Two analog sticks, parked in the bottom corners and always on screen so the
+   player can see where to put a thumb, but still grabbable anywhere on their
+   half of the display: press away from the pad and it comes to the thumb.
+   `--sd` is the pad diameter, shrunk on short screens where a landscape phone
+   has barely 380px of height to spend. */
+.stick { position: absolute; width: 0; height: 0; opacity: .34; transition: opacity .14s ease; --nx: 0px; --ny: 0px; --sd: 132px; }
 .stick[data-on="1"] { opacity: 1; }
-.stick-base, .stick-nub { position: absolute; border-radius: 50%; transform: translate(-50%,-50%); }
-.stick-base { width: 132px; height: 132px; border: 2px solid rgba(232,220,196,.22); background: rgba(11,9,6,.3); }
-.stick-nub { width: 56px; height: 56px; background: rgba(255,179,58,.28); border: 2px solid var(--sodium); left: var(--nx); top: var(--ny); }
-.stick.look .stick-nub { background: rgba(79,168,139,.28); border-color: var(--verdigris); }
+.stick-base, .stick-nub, .stick-ring { position: absolute; border-radius: 50%; transform: translate(-50%,-50%); }
+.stick-base { width: var(--sd); height: var(--sd); border: 2px solid rgba(232,220,196,.22); background: rgba(11,9,6,.3); }
+.stick-ring { width: calc(var(--sd) * .62); height: calc(var(--sd) * .62); border: 1px dashed rgba(232,220,196,.14); }
+.stick-nub {
+  width: calc(var(--sd) * .42); height: calc(var(--sd) * .42);
+  background: rgba(255,179,58,.28); border: 2px solid var(--sodium);
+  left: var(--nx); top: var(--ny);
+  box-shadow: 0 0 14px rgba(255,179,58,.18);
+}
+.stick[data-on="1"] .stick-base { border-color: rgba(255,179,58,.45); }
+.stick.look .stick-nub { background: rgba(79,168,139,.28); border-color: var(--verdigris); box-shadow: 0 0 14px rgba(79,168,139,.18); }
+.stick.look[data-on="1"] .stick-base { border-color: rgba(79,168,139,.45); }
+/* The label only shows while the stick is idle — once a thumb is on it, the
+   player knows what it is. */
+.stick-label {
+  position: absolute; transform: translate(-50%,-50%);
+  top: calc(var(--sd) * .5 + 13px); left: 0;
+  font-family: var(--display); font-size: .5rem; letter-spacing: .18em;
+  text-transform: uppercase; color: rgba(232,220,196,.5); white-space: nowrap;
+  transition: opacity .14s ease;
+}
+.stick[data-on="1"] .stick-label { opacity: 0; }
+/* Anchors. Zero-sized, so their box is exactly the dock centre and the JS can
+   read it back with getBoundingClientRect at whatever size CSS settled on. */
+.stick-dock { position: absolute; width: 0; height: 0; pointer-events: none; }
+.dock-l { left: 96px; bottom: 96px; }
+.dock-r { right: 96px; bottom: 96px; }
+
+.save-tools { display: flex; gap: .5rem; flex-wrap: wrap; margin: .2rem 0 .4rem; }
+.save-tools button { flex: 1 1 12rem; }
 
 .tbtn {
   position: absolute; pointer-events: auto;
@@ -584,18 +615,41 @@ kbd {
   display: grid; place-items: center;
 }
 .tbtn[data-on="1"] { background: rgba(255,179,58,.3); border-color: var(--sodium); color: var(--sodium); }
-.fire   { right: 22px; bottom: 118px; width: 92px; height: 92px; font-size: .74rem; border-color: rgba(192,74,42,.6); }
-.ads    { right: 128px; bottom: 150px; width: 72px; height: 72px; }
-.reload { right: 128px; bottom: 66px; width: 62px; height: 62px; }
-.jump   { right: 34px; bottom: 34px; width: 62px; height: 62px; }
-.crouch { right: 208px; bottom: 96px; width: 58px; height: 58px; }
-.sprint { right: 208px; bottom: 24px; width: 58px; height: 58px; }
-.use    { right: 22px; bottom: 224px; width: 68px; height: 68px; border-color: rgba(79,168,139,.6); }
-.med    { left: 22px; bottom: 24px; width: 58px; height: 58px; border-color: rgba(79,168,139,.5); }
-.fix    { left: 154px; bottom: 24px; width: 58px; height: 58px; }
-.swap   { left: 88px; bottom: 24px; width: 58px; height: 58px; }
-.inv    { left: 22px; top: 84px; width: 54px; height: 54px; }
-.menu   { left: 22px; top: 20px; width: 54px; height: 54px; font-size: 1.1rem; }
+/* The face buttons are laid out around the two pads: nothing may sit inside
+   the 162px square each pad occupies in its corner, or a thumb reaching for
+   the stick lands on a button instead. */
+.fire   { right: 178px; bottom: 26px;  width: 88px; height: 88px; font-size: .74rem; border-color: rgba(192,74,42,.6); }
+.ads    { right: 178px; bottom: 126px; width: 68px; height: 68px; }
+.reload { right: 276px; bottom: 26px;  width: 60px; height: 60px; }
+.crouch { right: 276px; bottom: 98px;  width: 56px; height: 56px; }
+.sprint { right: 258px; bottom: 170px; width: 56px; height: 56px; }
+.use    { right: 26px;  bottom: 176px; width: 68px; height: 68px; border-color: rgba(79,168,139,.6); }
+.jump   { right: 108px; bottom: 180px; width: 60px; height: 60px; }
+.med    { left: 178px;  bottom: 26px;  width: 56px; height: 56px; border-color: rgba(79,168,139,.5); }
+.torch  { left: 242px;  bottom: 26px;  width: 56px; height: 56px; border-color: rgba(255,226,176,.55); }
+.swap   { left: 178px;  bottom: 90px;  width: 56px; height: 56px; }
+.fix    { left: 178px;  bottom: 154px; width: 56px; height: 56px; }
+.inv    { left: 22px;   top: 84px;  width: 54px; height: 54px; }
+.menu   { left: 22px;   top: 20px;  width: 54px; height: 54px; font-size: 1.1rem; }
+
+/* A landscape phone is about 380px tall. Everything comes in and down a size
+   so the top of the tallest button still clears the HUD. */
+@media (max-height: 460px) {
+  .stick { --sd: 108px; }
+  .dock-l { left: 80px; bottom: 78px; }
+  .dock-r { right: 80px; bottom: 78px; }
+  .fire   { right: 148px; bottom: 20px;  width: 76px; height: 76px; }
+  .ads    { right: 148px; bottom: 106px; width: 58px; height: 58px; }
+  .reload { right: 232px; bottom: 20px;  width: 52px; height: 52px; }
+  .crouch { right: 232px; bottom: 82px;  width: 50px; height: 50px; }
+  .sprint { right: 216px; bottom: 142px; width: 50px; height: 50px; }
+  .use    { right: 22px;  bottom: 146px; width: 58px; height: 58px; }
+  .jump   { right: 90px;  bottom: 150px; width: 52px; height: 52px; }
+  .med    { left: 148px;  bottom: 20px;  width: 50px; height: 50px; }
+  .torch  { left: 206px;  bottom: 20px;  width: 50px; height: 50px; }
+  .swap   { left: 148px;  bottom: 78px;  width: 50px; height: 50px; }
+  .fix    { left: 148px;  bottom: 136px; width: 50px; height: 50px; }
+}
 
 /* ========================================================================
    Responsive + accessibility
@@ -53791,6 +53845,12 @@ const SKILLS = Object.freeze([
 
 const SKILL_IDS = SKILLS.map((s) => s.id);
 const SKILL_MAX = 200;
+
+// Energy per Action Point. Seven AP — an average sheet — comes to the 100-point
+// pool the Attack Focus meter was fixed at before, and an aimed shot costs two
+// of them. Declared here because the character maths that spends it is defined
+// long before the combat code that reads it.
+const AP_ENERGY = 100 / 7;
 const TAG_SKILL_COUNT = 3;
 const TAG_SKILL_BONUS = 20;
 
@@ -53800,18 +53860,21 @@ const TAG_SKILL_BONUS = 20;
 // ---------------------------------------------------------------------------
 const TRAITS = Object.freeze([
   { id: 'bullneck',   name: 'Bullneck',      up: '+2 Brawn',                 down: '−2 Action Points',        mods: { attr: { vigor: 2 }, derived: { ap: -2 } } },
-  { id: 'snapshooter',name: 'Snapshooter',   up: 'Shots cost 1 less AP',     down: 'No aimed shots at all',   mods: { derived: { apShot: -1 }, flags: { noAimedShot: true } } },
+  // Was a contradiction: it discounted aimed shots and then forbade them, and
+  // neither half was wired to anything. It is now what it always described —
+  // a shooter who fires from the hip and never lines one up.
+  { id: 'snapshooter',name: 'Snapshooter',   up: '+10 to every combat skill', down: 'Cannot use Attack Focus', mods: { skillGroup: { combat: 10 }, flags: { noAimedShot: true } } },
   { id: 'precision',  name: 'Precision',     up: '+10% critical chance',     down: '−1 AP every action',      mods: { derived: { crit: 10, ap: -1 } } },
   { id: 'reckless',   name: 'Reckless',      up: '+25% damage dealt',        down: '+35% damage taken',       mods: { mult: { dmgOut: 1.25, dmgIn: 1.35 } } },
-  { id: 'prodigy',    name: 'Prodigy',       up: '+1 to every attribute',    down: '−10% all skills, −5 skill points per level', mods: { attrAll: 1, skillAll: -10, derived: { skillPts: -5 } } },
-  { id: 'skilled',    name: 'Skilled',       up: '+5 skill points per level',down: 'One fewer trait pick',     mods: { derived: { skillPts: 5 }, flags: { slowPerks: true } } },
+  { id: 'prodigy',    name: 'Prodigy',       up: '+1 to every attribute',    down: '−10 to every skill, −5 skill points per level', mods: { attrAll: 1, skillAll: -10, derived: { skillPts: -5 } } },
+  { id: 'skilled',    name: 'Studious',      up: '+5 skill points per level',down: 'Perks arrive one level later', mods: { derived: { skillPts: 5 }, flags: { slowPerks: true } } },
   { id: 'hardhitter', name: 'Hard Hitter',   up: '+4 melee damage',          down: '−30% critical chance',    mods: { derived: { meleeDmg: 4, critMult: -30 } } },
   { id: 'hexed',      name: 'Hexed',         up: 'Enemies fumble far more',  down: 'So do you',               mods: { flags: { hexed: true } } },
-  { id: 'slightframe',name: 'Slight Frame',  up: '+1 Edge',                  down: 'Carry limit cut by a third', mods: { attr: { edge: 1 }, mult: { carry: 0.66 } } },
+  { id: 'slightframe',name: 'Wiry',  up: '+1 Edge',                  down: 'Carry limit cut by a third', mods: { attr: { edge: 1 }, mult: { carry: 0.66 } } },
   { id: 'hotblood',   name: 'Hot Blood',     up: 'Heal 50% faster',          down: 'Medicine works 50% worse', mods: { mult: { regen: 1.5, healItem: 0.5 } } },
   { id: 'cleanblood', name: 'Clean Blood',   up: '+50% chem resistance',     down: 'Chems last half as long', mods: { mult: { chemRes: 1.5, chemDur: 0.5 } } },
   { id: 'eventemper', name: 'Even-Tempered', up: '+20 Parley & Haggling',    down: '−10 all combat skills',   mods: { skill: { parley: 20, haggling: 20 }, skillGroup: { combat: -10 } } },
-  { id: 'owl',        name: 'Owl',           up: '+1 INS/INT after dusk',    down: '−1 INS/INT in daylight',  mods: { flags: { owl: true } } },
+  { id: 'owl',        name: 'Owl',           up: '+1 Insight & Understanding after dark', down: '−1 Insight & Understanding by day', mods: { flags: { owl: true } } },
   { id: 'singlegrip', name: 'Single-Grip',   up: '+20 with one-handed arms', down: '−40 with two-handed arms',mods: { flags: { singleGrip: true } } },
 ]);
 
@@ -53822,41 +53885,41 @@ const MAX_TRAITS = 2;
 // character; `mods` uses the same vocabulary as traits.
 // ---------------------------------------------------------------------------
 const PERKS = Object.freeze([
-  { id: 'appraise',    name: 'Appraise',        lvl: 3,  req: {},                              desc: 'Container and corpse contents are listed before you open them.', mods: { flags: { appraise: true } } },
+  { id: 'appraise',    name: 'Appraise',        lvl: 3,  req: {},                              desc: 'You always know what a thing is worth. Better prices, buying and selling.', mods: { mult: { price: 1.12 } } },
   { id: 'ironknuckle', name: 'Iron Knuckles',   lvl: 3,  req: { attr: { vigor: 6 } },          desc: '+3 damage on every unarmed strike.',                   mods: { derived: { unarmedDmg: 3 } }, ranks: 3 },
-  { id: 'fleetstep',   name: 'Fleet Step',      lvl: 6,  req: { attr: { edge: 5 } },           desc: '+2 Action Points that may only be spent moving.',      mods: { derived: { moveAp: 2 } }, ranks: 2 },
+  { id: 'fleetstep',   name: 'Fleet Step',      lvl: 6,  req: { attr: { edge: 5 } },           desc: 'You cover ground faster than anyone has a right to on foot.',      mods: { derived: { moveAp: 2 } }, ranks: 2 },
   { id: 'fasthands',   name: 'Fast Hands',      lvl: 15, req: { attr: { edge: 7 } },           desc: 'Every shot costs 1 less Action Point.',                mods: { derived: { apShot: -1 } } },
   { id: 'faststudy',   name: 'Fast Study',      lvl: 3,  req: { attr: { understanding: 6 } },  desc: 'Manuals and terminals teach you 50% more.',            mods: { mult: { study: 1.5 } } },
   { id: 'firstword',   name: 'First Word',      lvl: 3,  req: { attr: { insight: 6 } },        desc: '+2 to initiative — you act before nearly anything.',   mods: { derived: { init: 2 } }, ranks: 3 },
   { id: 'schooled',    name: 'Schooled',        lvl: 6,  req: { attr: { understanding: 6 } },  desc: '+2 skill points every level.',                         mods: { derived: { skillPts: 2 } }, ranks: 3 },
   { id: 'readtheroom', name: 'Read the Room',   lvl: 6,  req: { attr: { insight: 7 } },        desc: 'Dialogue shows how the other party actually feels.',   mods: { flags: { empathy: true } } },
   { id: 'strongarm',   name: 'Strong Arm',      lvl: 6,  req: { attr: { vigor: 6 } },          desc: 'Thrown weapons travel half again as far.',             mods: { mult: { throwRange: 1.5 } } },
-  { id: 'instantins',  name: 'Instant Insight', lvl: 6,  req: {},                              desc: 'Level up immediately when you would, mid-fight.',      mods: { flags: { instantLevel: true } } },
-  { id: 'lifegiver',   name: 'Lifegiver',       lvl: 12, req: { attr: { resolve: 4 } },        desc: '+4 max health per level, retroactively.',              mods: { derived: { hpPerLvl: 4 } }, ranks: 2 },
+  { id: 'instantins',  name: 'Instant Insight', lvl: 6,  req: {},                              desc: 'Everything teaches you something: +2 skill points every level.',      mods: { derived: { skillPts: 2 } } },
+  { id: 'lifegiver',   name: 'Long Wind',       lvl: 12, req: { attr: { resolve: 4 } },        desc: '+4 max health per level, retroactively.',              mods: { derived: { hpPerLvl: 4 } }, ranks: 2 },
   { id: 'nightshade',  name: 'Nightshade',      lvl: 6,  req: { skill: { prowl: 60 } },        desc: '+20 Prowl. Footsteps stop carrying.',                  mods: { skill: { prowl: 20 } } },
   { id: 'moretougher', name: 'Toughened Hide',  lvl: 3,  req: { attr: { resolve: 6 } },        desc: '+10% damage resistance.',                              mods: { derived: { dr: 10 } }, ranks: 3 },
   { id: 'radresist',   name: 'Lead Liver',      lvl: 6,  req: { attr: { resolve: 6 } },        desc: '+30% radiation and poison resistance.',                mods: { derived: { radRes: 30, poisonRes: 30 } }, ranks: 2 },
-  { id: 'sharpshoot',  name: 'Sharpshooter',    lvl: 9,  req: { attr: { insight: 7 } },        desc: '+2 effective Insight for range and accuracy.',         mods: { derived: { rangeIns: 2 } } },
+  { id: 'sharpshoot',  name: 'Long Sight',    lvl: 9,  req: { attr: { insight: 7 } },        desc: '+2 effective Insight for range and accuracy.',         mods: { derived: { rangeIns: 2 } } },
   { id: 'sniper',      name: 'Marksman’s Eye',  lvl: 18, req: { attr: { insight: 8, edge: 8 } }, desc: 'Any aimed hit can roll a critical on Serendipity.',  mods: { flags: { sniper: true } } },
   { id: 'slayer',      name: 'Bonebreaker',     lvl: 18, req: { attr: { vigor: 8, edge: 8 } }, desc: 'Every melee hit can roll a critical.',                 mods: { flags: { slayer: true } } },
-  { id: 'betterccrit', name: 'Better Criticals', lvl: 9, req: { attr: { insight: 6, serendipity: 6 } }, desc: 'Criticals do 50% more.',                      mods: { mult: { critDmg: 1.5 } } },
+  { id: 'betterccrit', name: 'Killing Angle', lvl: 9, req: { attr: { insight: 6, serendipity: 6 } }, desc: 'Criticals do 50% more.',                      mods: { mult: { critDmg: 1.5 } } },
   { id: 'actionboy',   name: 'Quickstep',       lvl: 12, req: { attr: { edge: 5 } },           desc: '+1 Action Point.',                                     mods: { derived: { ap: 1 } }, ranks: 3 },
   { id: 'toughness',   name: 'Scar Tissue',     lvl: 3,  req: { attr: { resolve: 6, serendipity: 6 } }, desc: '+10% resistance to every damage type.',       mods: { derived: { drAll: 10 } }, ranks: 3 },
   { id: 'medic',       name: 'Field Surgeon',   lvl: 12, req: { skill: { fieldmed: 75, surgery: 50 } }, desc: 'Medicine restores 30% more and never fails.',  mods: { mult: { healItem: 1.3 }, flags: { noHealFail: true } } },
   { id: 'mrfixit',     name: 'Scrapwright',     lvl: 12, req: { skill: { tinkering: 75, technics: 75 } }, desc: 'Repair and Technics succeed on the low roll.', mods: { flags: { fixit: true } } },
-  { id: 'negotiator',  name: 'Negotiator',      lvl: 6,  req: { skill: { parley: 50, haggling: 50 } }, desc: '+20 Parley and Haggling.',                     mods: { skill: { parley: 20, haggling: 20 } } },
-  { id: 'pathfinder',  name: 'Pathfinder',      lvl: 6,  req: { skill: { wayfaring: 60 } },    desc: 'Travel between places costs 25% less time.',           mods: { mult: { travel: 0.75 } }, ranks: 2 },
-  { id: 'scrounger',   name: 'Scrounger',       lvl: 9,  req: { attr: { serendipity: 8 } },    desc: 'Twice as much ammunition in every container.',         mods: { mult: { ammoFind: 2 } } },
-  { id: 'silentdeath', name: 'Silent Death',    lvl: 18, req: { skill: { prowl: 80, brawling: 80 } }, desc: 'Unseen melee hits from behind do triple damage.', mods: { flags: { silentDeath: true } } },
-  { id: 'stonewall',   name: 'Stonewall',       lvl: 6,  req: { attr: { vigor: 6 } },          desc: 'You cannot be knocked down.',                          mods: { flags: { stonewall: true } } },
+  { id: 'negotiator',  name: 'Broker',      lvl: 6,  req: { skill: { parley: 50, haggling: 50 } }, desc: '+20 Parley and Haggling.',                     mods: { skill: { parley: 20, haggling: 20 } } },
+  { id: 'pathfinder',  name: 'Roadwise',      lvl: 6,  req: { skill: { wayfaring: 60 } },    desc: 'Travel between places costs 25% less time.',           mods: { mult: { travel: 0.75 } }, ranks: 2 },
+  { id: 'scrounger',   name: 'Magpie',       lvl: 9,  req: { attr: { serendipity: 8 } },    desc: 'Twice as much ammunition in every container.',         mods: { mult: { ammoFind: 2 } } },
+  { id: 'silentdeath', name: 'Quiet Work',    lvl: 18, req: { skill: { prowl: 80, brawling: 80 } }, desc: 'Unseen melee hits from behind do triple damage.', mods: { flags: { silentDeath: true } } },
+  { id: 'stonewall',   name: 'Immovable',       lvl: 6,  req: { attr: { vigor: 6 } },          desc: 'Nothing moves you. All incoming damage reduced by 15%.',                          mods: { mult: { dmgIn: 0.85 } } },
   { id: 'gunsmith',    name: 'Gunsmith',        lvl: 9,  req: { skill: { tinkering: 60 } },    desc: 'Weapons hold condition and jam far less.',             mods: { mult: { wear: 0.4 } } },
-  { id: 'adrenaline',  name: 'Adrenaline Rush', lvl: 6,  req: { attr: { vigor: 5 } },          desc: '+1 Brawn below half health.',                          mods: { flags: { adrenaline: true } } },
+  { id: 'adrenaline',  name: 'Second Wind', lvl: 6,  req: { attr: { vigor: 5 } },          desc: '+1 Brawn below half health.',                          mods: { flags: { adrenaline: true } } },
   { id: 'steadyaim',   name: 'Steady Aim',      lvl: 9,  req: { attr: { edge: 6 } },           desc: 'Sights settle twice as fast and sway is halved.',      mods: { mult: { adsSpeed: 2, sway: 0.5 } } },
-  { id: 'livingsight', name: 'Living Sight',    lvl: 12, req: { attr: { insight: 8 } },        desc: 'Hostiles inside 40m show on the compass.',             mods: { flags: { livingSight: true } } },
-  { id: 'cannibal',    name: 'Ash Eater',       lvl: 9,  req: { attr: { resolve: 6 } },        desc: 'Recover health from the dead. People will notice.',     mods: { flags: { cannibal: true } } },
+  { id: 'livingsight', name: 'Anatomist',    lvl: 12, req: { attr: { insight: 8 } },        desc: 'Hostiles inside 40m show on the compass.',             mods: { flags: { livingSight: true } } },
+  { id: 'cannibal',    name: 'Ash Eater',       lvl: 9,  req: { attr: { resolve: 6 } },        desc: 'You will eat what others will not. Food and rations restore half again as much.',     mods: { mult: { foodHeal: 1.5 } } },
   { id: 'quickstudy',  name: 'Quick Study',     lvl: 3,  req: {},                              desc: '+10% experience from every source.',                   mods: { mult: { xp: 1.1 } }, ranks: 2 },
-  { id: 'assay',       name: 'Assay',           lvl: 3,  req: { attr: { insight: 5 } },        desc: 'Enemy health and resistances show when you look at them.', mods: { flags: { assay: true } } },
-  { id: 'wary',        name: 'Wary',            lvl: 3,  req: { attr: { insight: 6 } },        desc: 'You are never caught unaware — no ambush gets a free round.', mods: { flags: { wary: true } } },
+  { id: 'assay',       name: 'Assay',           lvl: 3,  req: { attr: { insight: 5 } },        desc: 'You read a body for its weak points: +15% critical chance.', mods: { derived: { crit: 15 } } },
+  { id: 'wary',        name: 'Wary',            lvl: 3,  req: { attr: { insight: 6 } },        desc: 'You are never caught unaware: +4 Sequence, and you act first.', mods: { derived: { init: 4 } } },
   { id: 'bracing',     name: 'Bracing',         lvl: 12, req: { attr: { vigor: 7 } },          desc: 'Heavy weapons handle as though you were two points stronger.', mods: { derived: { vigorHeavy: 2 }, mult: { recoil: 0.75 } } },
   { id: 'firebug',     name: 'Firebug',         lvl: 9,  req: { skill: { ordnance: 60 } },     desc: 'Fire and flame weapons do 30% more.',                  mods: { mult: { fireDmg: 1.3 } } },
   { id: 'sapper',      name: 'Sapper',          lvl: 9,  req: { skill: { demolition: 75 } },   desc: 'Explosives do 25% more and never harm you.',           mods: { mult: { blastDmg: 1.25 }, flags: { blastImmune: true } } },
@@ -53985,7 +54048,7 @@ const WEAPONS = Object.freeze({
     spread: 2.9, recoil: 1.2, range: 26, weight: 4.0, value: 1600, crit: 4, ap: 5, adsFov: 46, adsTime: 0.26, reload: 2.4,
     builder: 'smg', hands: 2, desc: 'Heavy calibre out of a light gun. Kicks like it resents you.' }),
 
-  varmint: W({ id: 'varmint', name: 'Varmint Rifle', cls: 'rifle', skill: 'sidearms', dmg: [6, 11], ammo: 'c22', mag: 10, rpm: 150,
+  varmint: W({ id: 'varmint', name: 'Vermin Rifle', cls: 'rifle', skill: 'sidearms', dmg: [6, 11], ammo: 'c22', mag: 10, rpm: 150,
     spread: 0.9, recoil: 0.5, range: 44, weight: 2.6, value: 180, crit: 10, ap: 4, adsFov: 34, adsTime: 0.26, reload: 2.2, scope: 1.2,
     builder: 'rifle', hands: 2, desc: 'A farm gun. Kills rats reliably and everything else eventually.' }),
   huntsman: W({ id: 'huntsman', name: 'Huntsman Lever', cls: 'rifle', skill: 'sidearms', dmg: [18, 30], ammo: 'c357', mag: 8, rpm: 85,
@@ -54049,7 +54112,7 @@ const CONSUMABLES = Object.freeze({
   radscrub:  { id: 'radscrub',  name: 'Isotope Flush', weight: 0.1, value: 220, rads: -60, use: 'inject', desc: 'Purges accumulated isotope load over several minutes.' },
   antivenin: { id: 'antivenin', name: 'Antivenin',    weight: 0.1, value: 90,  poison: -40, use: 'inject', desc: 'For scorpion country.' },
   bulkout:   { id: 'bulkout',   name: 'Bulkout',      weight: 0.1, value: 200, timed: { attr: { vigor: 2, resolve: 2 }, dur: 300 }, addict: 0.15, use: 'pill', desc: 'Muscle stimulant. Habit-forming.' },
-  cogniats:  { id: 'cogniats',  name: 'Cogniats',     weight: 0.1, value: 220, timed: { attr: { understanding: 2, insight: 2 }, dur: 300 }, addict: 0.12, use: 'pill', desc: 'Everything gets very slightly obvious.' },
+  cogniats:  { id: 'cogniats',  name: 'Clarion',     weight: 0.1, value: 220, timed: { attr: { understanding: 2, insight: 2 }, dur: 300 }, addict: 0.12, use: 'pill', desc: 'Everything gets very slightly obvious.' },
   frenzy:    { id: 'frenzy',    name: 'Frenzy',       weight: 0.1, value: 260, timed: { dmgOut: 1.3, dr: 20, dur: 240 }, addict: 0.3, use: 'inject', desc: 'Combat stimulant. You will not notice the wound.' },
   vapor:     { id: 'vapor',     name: 'Vapor',        weight: 0.05, value: 180, timed: { ap: 2, dmgOut: 1.15, dur: 200 }, addict: 0.45, use: 'inhale', desc: 'Inhalant. Cheap, fast, and it owns people.' },
   atomfizz:  { id: 'atomfizz',  name: 'Electrolyte Salts', weight: 0.5, value: 20,  heal: [2, 5], rads: 3, use: 'drink', desc: 'Industrial rehydration powder. Faintly warm, faintly contaminated, tin worth keeping.' },
@@ -54169,7 +54232,7 @@ function xpForLevel(n) { return n <= 1 ? 0 : ((n - 1) * n * 500) / 2; }
 function levelForXp(xp) { let n = 1; while (xpForLevel(n + 1) <= xp) n += 1; return n; }
 
 
-  Object.assign(__M, { ATTRIBUTES, ATTR_IDS, ATTR_MIN, ATTR_MAX, CHARGEN_POOL, SKILL_GROUPS, SKILLS, SKILL_IDS, SKILL_MAX, TAG_SKILL_COUNT, TAG_SKILL_BONUS, TRAITS, MAX_TRAITS, PERKS, PERK_LEVEL_INTERVAL, AMMO, WEAPONS, WEAPON_IDS, ARMORS, CONSUMABLES, MISC, ALL_ITEMS, itemDef, CREATURES, CREATURE_IDS, FACTIONS, REP_TITLES, repTitle, DMG_TYPES, weaponDamageType, xpForLevel, levelForXp });
+  Object.assign(__M, { ATTRIBUTES, ATTR_IDS, ATTR_MIN, ATTR_MAX, CHARGEN_POOL, SKILL_GROUPS, AP_ENERGY, SKILLS, SKILL_IDS, SKILL_MAX, TAG_SKILL_COUNT, TAG_SKILL_BONUS, TRAITS, MAX_TRAITS, PERKS, PERK_LEVEL_INTERVAL, AMMO, WEAPONS, WEAPON_IDS, ARMORS, CONSUMABLES, MISC, ALL_ITEMS, itemDef, CREATURES, CREATURE_IDS, FACTIONS, REP_TITLES, repTitle, DMG_TYPES, weaponDamageType, xpForLevel, levelForXp });
 })();
 // ======================================================================
 // js/char.js
@@ -54180,7 +54243,7 @@ function levelForXp(xp) { let n = 1; while (xpForLevel(n + 1) <= xp) n += 1; ret
 // character resolves through here so there is exactly one place where a
 // trait, perk, chem and piece of armour can argue about a number.
 
-const { ATTR_IDS, ATTR_MIN, ATTR_MAX, SKILLS, SKILL_IDS, SKILL_MAX, TRAITS, PERKS, TAG_SKILL_BONUS, PERK_LEVEL_INTERVAL, FACTIONS, AMMO, WEAPONS, ARMORS, itemDef, levelForXp, xpForLevel } = __M;
+const { ATTR_IDS, ATTR_MIN, ATTR_MAX, SKILLS, SKILL_IDS, SKILL_MAX, AP_ENERGY, TRAITS, PERKS, TAG_SKILL_BONUS, PERK_LEVEL_INTERVAL, FACTIONS, AMMO, WEAPONS, ARMORS, itemDef, levelForXp, xpForLevel } = __M;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const byId = (list) => Object.fromEntries(list.map((x) => [x.id, x]));
 const SKILL_BY_ID = byId(SKILLS);
@@ -54238,9 +54301,19 @@ class Character {
   // the hot paths (per-frame HUD, per-shot accuracy) stay cheap.
   mods() {
     if (this._mods && this._modsTick === this._tick) return this._mods;
+    // Re-entrancy guard. Adrenaline Rush asks "am I below half health?";
+    // maxHp() asks mods() for its bonuses, which asks maxHp() again — an
+    // unbounded loop that overflowed the stack and took the whole game down
+    // the instant that perk was picked. Anything that calls back in while the
+    // table is being built gets the half-built table, which is what every
+    // caller here wants: none of them depends on a bucket filled after the
+    // point they asked.
+    if (this._building) return this._building;
     const m = {
       attr: {}, skill: {}, skillAll: 0, derived: {}, mult: {}, flags: {},
     };
+    this._building = m;
+    try {
     const add = (bucket, k, v) => { bucket[k] = (bucket[k] || 0) + v; };
     const mul = (k, v) => { m.mult[k] = (m.mult[k] ?? 1) * v; };
 
@@ -54282,7 +54355,13 @@ class Character {
     const ar = ARMORS[this.equipped.armor];
     if (ar?.vigor) add(m.attr, 'vigor', ar.vigor);
 
-    if (m.flags.adrenaline && this.hp < this.maxHp() / 2) add(m.attr, 'vigor', 1);
+    // Compared against the unmodified ceiling, not maxHp(). Adrenaline Rush
+    // grants Brawn, maxHp() is built from Brawn, and asking maxHp() from
+    // inside the table that defines it made the answer depend on whether the
+    // table happened to be cached — two characters with identical sheets could
+    // disagree about their own Brawn by a point, and a save/load round trip
+    // could shift it. This line is fixed by attributes and level alone.
+    if (m.flags.adrenaline && this.hp < this.baseMaxHp() / 2) add(m.attr, 'vigor', 1);
 
     // Withdrawal bites.
     for (const [chem, sev] of Object.entries(this.addiction)) {
@@ -54292,8 +54371,23 @@ class Character {
       }
     }
 
+    // Owl. The flag was set and read by nothing, so the trait did neither the
+    // good half nor the bad half. Derived straight from the clock the world
+    // already runs on, so it stays the same answer however it is asked.
+    if (m.flags.owl) {
+      const dayFrac = (((this.timeSec || 43200) % 86400) + 86400) % 86400 / 86400;
+      const afterDark = Math.sin((dayFrac - 0.25) * Math.PI * 2) < 0;
+      add(m.attr, 'insight', afterDark ? 1 : -1);
+      add(m.attr, 'understanding', afterDark ? 1 : -1);
+    }
+
     if (this.crippled.arm) add(m.skill, 'sidearms', -30);
     if (this.crippled.eye) add(m.attr, 'insight', -3);
+    } finally {
+      // Cleared even if something above throws, or one bad frame would poison
+      // every stat read for the rest of the session.
+      this._building = null;
+    }
 
     this._mods = m;
     this._modsTick = this._tick;
@@ -54364,6 +54458,15 @@ class Character {
   }
 
   // -- derived stats -------------------------------------------------------
+  // The health ceiling before any modifier is applied. Exists so that a
+  // modifier which itself depends on "am I below half health" has a fixed line
+  // to measure against instead of a circular one.
+  baseMaxHp() {
+    const res = clamp(this.attrs.resolve || 0, 1, 14);
+    const vig = clamp(this.attrs.vigor || 0, 1, 14);
+    return 20 + 2 * res + vig + (3 + Math.floor(res / 2)) * (this.level - 1);
+  }
+
   maxHp() {
     const m = this.mods();
     const per = 3 + Math.floor(this.attr('resolve') / 2) + (m.derived.hpPerLvl || 0);
@@ -54632,6 +54735,7 @@ class Character {
     const scaled = Math.round(n * (m.mult.healItem ?? 1));
     const before = this.hp;
     this.hp = clamp(this.hp + scaled, 0, this.maxHp());
+    if (this.hp !== before) this.dirty();
     return this.hp - before;
   }
 
@@ -54640,7 +54744,13 @@ class Character {
     // as well as the hit itself; a god who still dies of poisoning is not one.
     if (__M.cheats && __M.cheats().godMode) return 0;
     const dealt = this.damageTaken(amount, type);
+    const was = this.hp;
     this.hp = clamp(this.hp - dealt, 0, this.maxHp());
+    // Adrenaline Rush keys off "below half health", and the modifier table is
+    // cached until something marks it stale. Nothing did when health moved, so
+    // the perk sat inert until an unrelated equip or effect happened to
+    // refresh the table.
+    if (this.hp !== was) this.dirty();
     if (type === 'rad') this.rads += Math.round(amount / 2);
     if (type === 'poison') this.poison += Math.round(amount / 2);
     return dealt;
@@ -54657,6 +54767,9 @@ class Character {
     const parts = [];
     if (d.heal) {
       let [lo, hi] = d.heal;
+      // Field Surgeon: medicine never rolls low. The flag existed and was
+      // never read, so half the perk's description was fiction.
+      if (this.flag('noHealFail')) lo = hi;
       const fm = this.skill('fieldmed');
       const bonus = 1 + fm / 250;
       const foodMult = (d.use === 'eat' || d.use === 'drink') ? (this.mods().mult.foodHeal ?? 1) : 1;
@@ -54728,13 +54841,19 @@ class Character {
       if ((this.energy ?? 100) < this.maxEnergy()) {
         this.energy = Math.min(this.maxEnergy(), (this.energy ?? 100) + (1 + Math.floor(this.skill('fieldmed') / 60)) * dReg);
       }
+      const hpWas = this.hp;
       if (this.poison > 0) { this.poison -= 1; this.hp = Math.max(1, this.hp - 1); }
       if (this.rads > 400) this.hp = Math.max(1, this.hp - 1);
       this.hp = Math.min(this.hp, this.maxHp());
+      if (this.hp !== hpWas) this.dirty();
     }
   }
 
-  maxEnergy() { return 100; }
+  // Action Points are the Attack Focus pool. A default sheet carries 7, which
+  // is the flat 100 this used to return — so nothing changes for an ordinary
+  // character, but every Action Point modifier in the game now moves a real
+  // number instead of a label on the character sheet.
+  maxEnergy() { return Math.max(2, this.maxAp()) * AP_ENERGY; }
 
   karmaLabel() {
     const k = this.karma || 0;
@@ -54769,7 +54888,8 @@ class Character {
   priceFactor(vendorSkill = 50) {
     const h = this.skill('haggling') + this.attr('tact') * 2;
     const edge = clamp((h - vendorSkill) / 200, -0.45, 0.45);
-    return { buy: clamp(1.6 - edge * 1.4, 0.6, 2.4), sell: clamp(0.35 + edge * 0.9, 0.15, 0.95) };
+    const p = this.mods().mult.price ?? 1;
+    return { buy: clamp((1.6 - edge * 1.4) / p, 0.6, 2.4), sell: clamp((0.35 + edge * 0.9) * p, 0.15, 0.95) };
   }
 
   // -- persistence --------------------------------------------------------
@@ -54801,6 +54921,13 @@ class Character {
     c.flagsSet = new Set(j.flags || []);
     c.dirty();
     c.hp = clamp(j.hp ?? c.maxHp(), 0, c.maxHp());
+    // Marked stale *after* health lands, not before. maxHp() on the line above
+    // builds and caches the modifier table while hp is still the constructor's
+    // default, and any modifier that reads health — Adrenaline Rush does —
+    // would be frozen at that wrong reading. It made a loaded character
+    // measurably different from the one that was saved: same sheet, one point
+    // of Brawn apart, and two points on every Brawn-based skill.
+    c.dirty();
     return c;
   }
 }
@@ -54901,7 +55028,7 @@ function finish(canvas, { repeat = 1, aniso = 8, srgb = true } = {}) {
 // How much relief each surface should show. Machined metal is nearly flat;
 // concrete and rock are where the eye expects depth.
 const NORMAL_STRENGTH = {
-  concrete: 3.4, rustmetal: 3.0, vaultsteel: 2.0, dirt: 2.2, rock: 4.2,
+  concrete: 3.4, rustmetal: 3.0, bunkersteel: 2.0, dirt: 2.2, rock: 4.2,
   wood: 2.4, tile: 1.4, gunmetal: 1.1, flesh: 2.0, chitin: 2.6, cloth: 1.6,
 };
 
@@ -54957,7 +55084,7 @@ const RECIPES = {
     }
     return f;
   },
-  vaultsteel: (ctx, S, rnd) => {
+  bunkersteel: (ctx, S, rnd) => {
     const f = fbm2(rnd, S, S, 4);
     ctx.fillStyle = '#3d4348'; ctx.fillRect(0, 0, S, S);
     const img = ctx.getImageData(0, 0, S, S);
@@ -55219,7 +55346,7 @@ function material(name, opts = {}) {
   const presets = {
     concrete:  { tex: 'concrete',  color: 0xa8a49b, roughness: 0.94, metalness: 0.02, repeat: 3 },
     rustmetal: { tex: 'rustmetal', color: 0x9c8a78, roughness: 0.82, metalness: 0.55, repeat: 2 },
-    vaultsteel:{ tex: 'vaultsteel',color: 0x9fb0b8, roughness: 0.5,  metalness: 0.7,  repeat: 2 },
+    bunkersteel:{ tex: 'bunkersteel',color: 0x9fb0b8, roughness: 0.5,  metalness: 0.7,  repeat: 2 },
     dirt:      { tex: 'dirt',      color: 0xb99a72, roughness: 0.98, metalness: 0,    repeat: 22 },
     rock:      { tex: 'rock',      color: 0x9c9488, roughness: 0.95, metalness: 0.02, repeat: 4 },
     wood:      { tex: 'wood',      color: 0xa07a52, roughness: 0.86, metalness: 0,    repeat: 2 },
@@ -55251,7 +55378,7 @@ function material(name, opts = {}) {
 
   const m = (name === 'flesh' || name === 'chitin')
     ? new THREE.MeshPhysicalMaterial({ ...params, sheen: 0.55, sheenRoughness: 0.55, sheenColor: new THREE.Color(0xff9a80) })
-    : (name === 'gunmetal' || name === 'vaultsteel')
+    : (name === 'gunmetal' || name === 'bunkersteel')
       ? new THREE.MeshPhysicalMaterial({
         ...params,
         clearcoat: name === 'gunmetal' ? 0.7 : 0.4,
@@ -55339,6 +55466,12 @@ class Builder {
     this.interactables = [];
     this.spawns = [];
     this.navHints = [];
+    // Every ceiling slab laid down, so a light fixture can find the roof above
+    // it and bolt itself to it instead of hanging in mid-air.
+    this.ceilings = [];
+    // And every fixture placed, with the roof it ended up bolted to, so the
+    // build can be checked for lights left floating.
+    this.fixtures = [];
   }
 
   add(obj) { this.group.add(obj); return obj; }
@@ -55356,7 +55489,20 @@ class Builder {
     const m = mesh(new THREE.PlaneGeometry(w, d), material(matName, { repeat: Math.max(2, Math.round(w / 4)) }), cx, y, cz);
     m.rotation.x = Math.PI / 2;
     m.castShadow = false;
+    this.ceilings.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2, y });
     return this.add(m);
+  }
+
+  // The lowest roof above a point, or null under open sky. Lights use this to
+  // work out what to hang themselves from.
+  ceilingAbove(x, z, y = 0) {
+    let best = null;
+    for (const c of this.ceilings) {
+      if (x < c.x0 || x > c.x1 || z < c.z0 || z > c.z1) continue;
+      if (c.y <= y + 0.05) continue;
+      if (best === null || c.y < best) best = c.y;
+    }
+    return best;
   }
 
   // A wall run with an optional doorway gap. `axis` is 'x' or 'z'.
@@ -55470,7 +55616,7 @@ class Builder {
   terminal(x, z, rot = 0, y = 0, { label = 'TERMINAL', onUse = null } = {}) {
     const g = new THREE.Group();
     g.position.set(x, y, z); g.rotation.y = rot;
-    g.add(mesh(new THREE.BoxGeometry(0.8, 0.9, 0.6), material('vaultsteel'), 0, 0.9, 0));
+    g.add(mesh(new THREE.BoxGeometry(0.8, 0.9, 0.6), material('bunkersteel'), 0, 0.9, 0));
     g.add(mesh(new THREE.BoxGeometry(0.7, 0.06, 0.5), material('gunmetal'), 0, 0.46, 0));
     const screenMat = new THREE.MeshStandardMaterial({ color: 0x0a1d12, emissive: 0x38d98a, emissiveIntensity: 1.5, roughness: 0.5 });
     const screen = mesh(new THREE.PlaneGeometry(0.56, 0.4), screenMat, 0, 1.06, 0.31);
@@ -55493,7 +55639,7 @@ class Builder {
     const g = new THREE.Group();
     g.position.set(x, y, z);
     if (kind === 'locker') {
-      g.add(mesh(new THREE.BoxGeometry(0.8, 1.9, 0.55), material('vaultsteel'), 0, 0.95, 0));
+      g.add(mesh(new THREE.BoxGeometry(0.8, 1.9, 0.55), material('bunkersteel'), 0, 0.95, 0));
       g.add(mesh(new THREE.BoxGeometry(0.06, 0.2, 0.06), material('gunmetal'), 0.3, 1.0, 0.3));
       this.collide(box(x, z, 0.85, 0.6, 1.9, y));
     } else if (kind === 'safe') {
@@ -55514,7 +55660,7 @@ class Builder {
   door(x, z, rot = 0, { to = null, label = 'Door', locked = 0, needs = null, y = 0 } = {}) {
     const g = new THREE.Group();
     g.position.set(x, y, z); g.rotation.y = rot;
-    g.add(mesh(new THREE.BoxGeometry(2.0, 2.7, 0.16), material('vaultsteel'), 0, 1.35, 0));
+    g.add(mesh(new THREE.BoxGeometry(2.0, 2.7, 0.16), material('bunkersteel'), 0, 1.35, 0));
     g.add(mesh(new THREE.BoxGeometry(0.14, 0.5, 0.1), material('gunmetal'), 0.72, 1.3, 0.13));
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.05, 8, 24), material('rustmetal'));
     ring.position.set(0, 1.5, 0.1); g.add(ring);
@@ -55523,7 +55669,15 @@ class Builder {
     return g;
   }
 
-  lamp(x, z, y = 2.9, color = 0xffc27a, intensity = 120, range = 34) {
+  // Every fixture is fastened to something. `mount` names the surface it
+  // fastens to and overrides the lookup, for roofs the ceiling table does not
+  // know about — a market awning, the underside of a water tank, a slab of
+  // fallen roadway. It takes a height, or `{ y, x, z }` when the anchor is not
+  // directly overhead and the fixture needs an arm out to it. Left alone, the
+  // lamp finds the roof above itself; with open sky above, it stands on a post
+  // from the ground instead. `mount: null` is the deliberate escape hatch for
+  // a fixture that should hang from nothing.
+  lamp(x, z, y = 2.9, color = 0xffc27a, intensity = 120, range = 34, { mount, floorY = 0 } = {}) {
     const l = new THREE.PointLight(color, intensity, range, 2);
     l.position.set(x, y, z);
     l.castShadow = false;
@@ -55531,6 +55685,65 @@ class Builder {
     const shade = mesh(new THREE.ConeGeometry(0.3, 0.26, 12, 1, true), material('rustmetal'), x, y + 0.16, z);
     shade.rotation.x = Math.PI;
     this.add(shade);
+
+    // Work out what it fastens to. The shade's rim reaches 0.29 above the
+    // light, so that is where any hanging hardware has to start.
+    const top = y + 0.29;
+    let anchor = mount === undefined ? this.ceilingAbove(x, z, y) : mount;
+    if (typeof anchor === 'number') anchor = { y: anchor, x, z };
+    // Open sky above: it becomes a lamp post standing on the ground rather
+    // than a bulb floating at head height with nothing holding it.
+    if (mount !== null && anchor == null) anchor = { y: floorY, x, z };
+    // An anchor too close above to hang from and too close below to stand on
+    // gets a side bracket instead, so there is no gap in the rule: every
+    // fixture in the game is fastened to something.
+    const hung = !!anchor && anchor.y > top;
+    const stood = !!anchor && anchor.y < y - 0.4;
+    this.fixtures.push({ x, y, z, roof: anchor ? anchor.y : null, hung, stood, bracket: !!anchor && !hung && !stood });
+
+    if (anchor && anchor.y > top) {
+      // Hanging: a plate flush against the roof, an arm out to the fixture if
+      // the roof it hangs from is off to one side, and a conduit down.
+      const ax = anchor.x ?? x, az = anchor.z ?? z;
+      const reach = Math.hypot(ax - x, az - z);
+      // Sunk clear of the ceiling plane rather than flush against it. A plate
+      // whose top face sits exactly on the roof surface is two coplanar
+      // polygons fighting for the same depth value, which reads in-game as a
+      // light that will not stop flickering — most visible on the nine lamps
+      // of the opening bunker, where every ceiling clears its lamp by exactly
+      // the plate's own thickness.
+      this.add(mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.05, 12), material('rustmetal'), ax, anchor.y - 0.055, az));
+      if (reach > 0.05) {
+        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, reach, 8), material('rustmetal'));
+        arm.position.set((ax + x) / 2, anchor.y - 0.12, (az + z) / 2);
+        arm.rotation.z = Math.PI / 2;
+        arm.rotation.y = -Math.atan2(z - az, x - ax);
+        this.add(arm);
+      }
+      const drop = anchor.y - 0.12 - top;
+      if (drop > 0.12) {
+        this.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, drop, 8), material('rustmetal'), x, top + drop / 2, z));
+        this.add(mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.05, 10), material('rustmetal'), x, top + 0.02, z));
+      }
+    } else if (anchor && !stood) {
+      // Level with the fixture: a stub bracket out to whatever it is bolted
+      // to, rather than a post that would have to be a negative length.
+      const ax = anchor.x ?? x, az = anchor.z ?? z;
+      const reach = Math.max(0.25, Math.hypot(ax - x, az - z));
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, reach, 8), material('rustmetal'));
+      arm.position.set((ax + x) / 2, y + 0.14, (az + z) / 2);
+      arm.rotation.z = Math.PI / 2;
+      arm.rotation.y = -Math.atan2(z - az, x - ax);
+      this.add(arm);
+      this.add(mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.06, 10), material('rustmetal'), ax, y + 0.14, az));
+    } else if (anchor) {
+      // Standing: a post up from the ground with a base plate, and a collar
+      // where the fixture sits on top of it.
+      const rise = y - 0.06 - anchor.y;
+      this.add(mesh(new THREE.CylinderGeometry(0.055, 0.075, rise, 9), material('rustmetal'), x, anchor.y + rise / 2, z));
+      this.add(mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.09, 12), material('rustmetal'), x, anchor.y + 0.045, z));
+      this.add(mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.06, 10), material('rustmetal'), x, y + 0.02, z));
+    }
     const bulb = mesh(new THREE.SphereGeometry(0.09, 10, 8), new THREE.MeshStandardMaterial({ color: 0x221a10, emissive: color, emissiveIntensity: 3.6, roughness: 0.4 }), x, y - 0.04, z);
     this.add(bulb);
     const beamH = Math.min(Math.max(0.8, y - 0.15), 2.8);
@@ -55692,7 +55905,8 @@ class Builder {
   result(extras = {}) {
     return {
       group: this.group, colliders: this.colliders, lights: this.lights,
-      interactables: this.interactables, spawns: this.spawns, ...extras,
+      interactables: this.interactables, spawns: this.spawns,
+      ceilings: this.ceilings, fixtures: this.fixtures, ...extras,
     };
   }
 }
@@ -58340,7 +58554,7 @@ function interiorLight(b, color = 0x9fb0c0, intensity = 0.4) {
 
 // ---------------------------------------------------------------------------
 const LOCATIONS = {
-  // == VAULT 100 ============================================================
+  // == BUNKER 100 ===========================================================
   vault100: {
     name: 'Bunker 100',
     kind: 'interior',
@@ -58349,7 +58563,7 @@ const LOCATIONS = {
     build() {
       const b = new Builder(101);
       interiorLight(b, 0x8fa8c0, 0.35);
-      const steel = 'vaultsteel';
+      const steel = 'bunkersteel';
 
       // Entry hall
       b.room(0, 0, 14, 10, { h: 4.2, floorMat: 'tile', wallMat: steel, doors: [{ side: 's', at: 0, width: 3 }] });
@@ -58358,12 +58572,12 @@ const LOCATIONS = {
       b.sign(0, -4.8, 0, 'Bunker 100\nDirector Level', { w: 4.4, h: 1.4, y: 3.1, color: '#ffb33a' });
 
       // Big cog door on the north wall, decorative
-      const cog = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 0.36, 26), material('vaultsteel'));
+      const cog = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 0.36, 26), material('bunkersteel'));
       cog.rotation.x = Math.PI / 2;
       cog.position.set(0, 2.1, -4.9);
       for (let i = 0; i < 8; i += 1) {
         const a = (i / 8) * Math.PI * 2;
-        const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.5, 0.4), material('vaultsteel'));
+        const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.5, 0.4), material('bunkersteel'));
         tooth.position.set(Math.cos(a) * 2.5, Math.sin(a) * 2.5, 0);
         tooth.rotation.z = a;
         cog.add(tooth);
@@ -58410,7 +58624,7 @@ const LOCATIONS = {
         bunk.position.set(x, 0.62, 22.5);
         bunk.castShadow = true;
         b.add(bunk);
-        const frame = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.5, 2.1), material('vaultsteel'));
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.5, 2.1), material('bunkersteel'));
         frame.position.set(x, 0.25, 22.5);
         b.add(frame);
         b.collide(box(x, 22.5, 1.1, 2.1, 0.8));
@@ -58664,7 +58878,8 @@ const LOCATIONS = {
         tower.position.set(ox, 3.2, -halfD);
         tower.castShadow = true; b.add(tower);
         b.collide(box(ox, -halfD, 2.8, 2.8, 6.4));
-        b.lamp(ox, -halfD + 2, 6.0, 0xffdca0, 12, 20);
+        // Bracketed off the face of the gate tower it stands beside.
+        b.lamp(ox, -halfD + 2, 6.0, 0xffdca0, 12, 20, { mount: { y: 6.4, x: ox, z: -halfD + 1.3 } });
       }
 
       // Main street running north–south, buildings both sides
@@ -58759,7 +58974,7 @@ const LOCATIONS = {
       cone.position.set(0, tH + 6.4, 0);
       b.add(cone);
       b.sign(0, -tR - 0.1, 0, 'Nexus Ration Authority', { w: 6.4, h: 1.3, y: tH + 2.8, color: '#4fa88b' });
-      b.lamp(0, 0, tH - 0.6, 0xffdca0, 20, 30);
+      b.lamp(0, 0, tH - 0.6, 0xffdca0, 20, 30, { mount: tH });
 
       // Market ring of stalls
       for (let i = 0; i < 10; i += 1) {
@@ -58775,15 +58990,32 @@ const LOCATIONS = {
           const p = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.6, 0.1), material('wood'));
           p.position.set(ox, 1.3, -0.8); stall.add(p);
         }
-        const awning = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.06, 2.0), material('cloth', { color: [0xa04a3a, 0x3a6a7a, 0x8a7a3a, 0x4a7a4a][i % 4], repeat: 1 }));
-        awning.position.set(0, 2.5, -0.1);
-        awning.rotation.x = 0.12;
+        const AWN_Y = 2.5, AWN_T = 0.06, AWN_TILT = 0.12, AWN_Z = -0.1;
+        const awning = new THREE.Mesh(new THREE.BoxGeometry(3.6, AWN_T, 2.0), material('cloth', { color: [0xa04a3a, 0x3a6a7a, 0x8a7a3a, 0x4a7a4a][i % 4], repeat: 1 }));
+        awning.position.set(0, AWN_Y, AWN_Z);
+        awning.rotation.x = AWN_TILT;
         awning.castShadow = true;
         stall.add(awning);
+
+        // The stall lamp hangs from the underside of the awning rather than
+        // hovering above it. Its fixture is a cone about 0.29 tall measured up
+        // from the light itself, so the light sits that far below the canopy's
+        // lower face and the whole thing reads as a bulb strung under a roof
+        // instead of a lantern balanced on top of one.
+        const awnUnder = AWN_Y - AWN_T / 2 - Math.abs(Math.sin(AWN_TILT)) * (1.0 + AWN_Z);
+        const lampY = awnUnder - 0.32;
+        // A short drop rod, so the fixture is visibly attached to something.
+        const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, awnUnder - lampY - 0.13, 6), material('rustmetal'));
+        rod.position.set(0, (awnUnder + lampY + 0.13) / 2, AWN_Z);
+        stall.add(rod);
         b.add(stall);
         const cos = Math.abs(Math.cos(-a + Math.PI / 2)), sin = Math.abs(Math.sin(-a + Math.PI / 2));
         b.collide(box(x, z, 3.4 * cos + 1.0 * sin, 1.0 * cos + 3.4 * sin, 1.0));
-        b.lamp(x, z, 2.9, 0xffc27a, 4, 8);
+        // Placed at the awning's own centre in the stall's rotated frame, not
+        // at the stall origin, so it hangs under the middle of the canopy on
+        // every stall around the ring rather than drifting toward the edge.
+        const th = -a + Math.PI / 2;
+        b.lamp(x + AWN_Z * Math.sin(th), z + AWN_Z * Math.cos(th), lampY, 0xffc27a, 4, 8, { mount: awnUnder });
       }
 
       // Warehouses and the caravan yard
@@ -58980,7 +59212,9 @@ const LOCATIONS = {
       b.vatTank(-3.4, 26, 1.2, 1.2, 3.0);
       b.vatTank(3.4, 26, 1.2, 1.2, 3.0);
       b.terminal(0, 27, Math.PI, 1.2, { label: 'Sanctum Records', onUse: 'sanctum_records' });
-      b.lamp(0, 25, 8.0, 0xa878ff, 14, 22);
+      // Hung over the Arbiter's dais from the nave roofline, not stood on a
+      // post in the middle of the altar floor.
+      b.lamp(0, 25, 8.0, 0xa878ff, 14, 22, { mount: 9.0 });
 
       // Side chapels
       for (const ox of [-16, 16]) {
@@ -59023,7 +59257,7 @@ const LOCATIONS = {
     build() {
       const b = new Builder(808);
       interiorLight(b, 0x6a8a9a, 0.3);
-      const steel = 'vaultsteel';
+      const steel = 'bunkersteel';
 
       // Entry checkpoint
       b.room(0, 0, 12, 10, { h: 4.2, floorMat: 'concrete', wallMat: steel, doors: [{ side: 's', at: 0, width: 3.0 }, { side: 'n', at: 0, width: 3.0 }] });
@@ -59065,14 +59299,14 @@ const LOCATIONS = {
         [10.6, -26, [['ioncaster', 1], ['cell_m', 20], ['hailstorm', 1], ['grenade40', 18]], null],
       ]) b.container(x, z, 'locker', 0, { loot, locked: 55, label });
 
-      // Vat hall — the actual objective
+      // Tank hall — the actual objective
       b.room(0, -40, 24, 20, { h: 7.0, floorMat: 'concrete', wallMat: steel, doors: [{ side: 'n', at: 0, width: 3.0 }] });
       for (const [x, z] of [[-8, -44], [0, -44], [8, -44], [-8, -36], [8, -36]]) b.vatTank(x, z, 0, 1.7, 4.4);
       b.lamp(0, -40, 6.6, 0x54d07a, 12, 22);
       b.lamp(-9, -38, 6.6, 0x54d07a, 8, 16);
       b.lamp(9, -38, 6.6, 0x54d07a, 8, 16);
-      b.terminal(0, -36, 0, 0, { label: 'CTI Master Control', onUse: 'vat_control' });
-      b.sign(0, -49.6, Math.PI, 'Forced Evolutionary Vats\nBiohazard', { w: 6.4, h: 1.6, y: 4.6, color: '#c04a2a' });
+      b.terminal(0, -36, 0, 0, { label: 'Conversion Tank Control', onUse: 'vat_control' });
+      b.sign(0, -49.6, Math.PI, 'Conversion Tanks\nBiohazard', { w: 6.4, h: 1.6, y: 4.6, color: '#c04a2a' });
       b.pipes(-11, -40, 19, 'z', 6.4);
       b.pipes(11, -40, 19, 'z', 6.4);
       b.container(-11, -46, 'crate', 0, { loot: [['arbiterlog', 1], ['bunkerbuster', 1], ['rocket', 8]], label: 'Research Crate' });
@@ -59187,7 +59421,7 @@ const LOCATIONS = {
       b.container(-5.5, -23, 'crate', 1.6, { loot: [['purewater', 4], ['scrap', 3], ['crown', 70]] });
 
       // Pump gallery — the reason anyone comes down here at all.
-      b.room(-26, -26, 12, 12, { h: 4.4, floorMat: 'tile', wallMat: 'vaultsteel', doors: [{ side: 'e', at: 0, width: 2.6 }] });
+      b.room(-26, -26, 12, 12, { h: 4.4, floorMat: 'tile', wallMat: 'bunkersteel', doors: [{ side: 'e', at: 0, width: 2.6 }] });
       b.lamp(-26, -26, 4.0, 0x9fd8c0, 9, 15);
       for (let i = 0; i < 3; i += 1) {
         const p = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 3.2, 16), material('rustmetal', { repeat: 2 }));
@@ -59239,7 +59473,7 @@ const LOCATIONS = {
 
       // The Order of the Iron Vow keeps a hardened chapter house. Everything
       // here is square, lit and inventoried — the opposite of the wasteland.
-      b.room(0, 0, 10, 10, { h: 4.4, floorMat: 'tile', wallMat: 'vaultsteel', doors: [{ side: 's', at: 0, width: 3.0 }, { side: 'n', at: 0, width: 2.8 }] });
+      b.room(0, 0, 10, 10, { h: 4.4, floorMat: 'tile', wallMat: 'bunkersteel', doors: [{ side: 's', at: 0, width: 3.0 }, { side: 'n', at: 0, width: 2.8 }] });
       b.lamp(0, 0, 4.0, 0xcfe4ff, 11, 16);
       b.sign(0, -4.7, 0, 'Ironhold\nRecord · Recover · Restrain', { w: 5.2, h: 1.4, y: 3.4, color: '#4FA88B' });
       b.door(0, 5.4, Math.PI, { to: 'wasteland', label: 'Blast Doors' });
@@ -59251,7 +59485,7 @@ const LOCATIONS = {
       }
 
       // Central hall with the Vow's seal inlaid in the floor.
-      b.room(0, -14, 16, 18, { h: 5.6, floorMat: 'tile', wallMat: 'vaultsteel', doors: [{ side: 's', at: 0, width: 2.8 }, { side: 'e', at: 0, width: 2.6 }, { side: 'w', at: 0, width: 2.6 }, { side: 'n', at: 0, width: 2.6 }] });
+      b.room(0, -14, 16, 18, { h: 5.6, floorMat: 'tile', wallMat: 'bunkersteel', doors: [{ side: 's', at: 0, width: 2.8 }, { side: 'e', at: 0, width: 2.6 }, { side: 'w', at: 0, width: 2.6 }, { side: 'n', at: 0, width: 2.6 }] });
       const seal = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 0.06, 32), new THREE.MeshStandardMaterial({
         color: 0x2a3238, roughness: 0.35, metalness: 0.85, emissive: 0x14303a, emissiveIntensity: 0.4,
       }));
@@ -59276,7 +59510,7 @@ const LOCATIONS = {
       }
 
       // Archive — the Vow's actual purpose.
-      b.room(-16, -14, 12, 12, { h: 4.2, floorMat: 'tile', wallMat: 'vaultsteel', doors: [{ side: 'e', at: 0, width: 2.6 }] });
+      b.room(-16, -14, 12, 12, { h: 4.2, floorMat: 'tile', wallMat: 'bunkersteel', doors: [{ side: 'e', at: 0, width: 2.6 }] });
       b.lamp(-16, -14, 3.8, 0x9fd8c0, 8, 14);
       b.sign(-9.7, -14, Math.PI / 2, 'Archive', { w: 2.6, h: 0.8, y: 3.2, color: '#4FA88B' });
       for (let i = 0; i < 5; i += 1) {
@@ -59287,7 +59521,7 @@ const LOCATIONS = {
       b.container(-19.5, -10, 'locker', 0, { loot: [['manual_gun', 1], ['manual_sci', 1]], locked: 40 });
 
       // Armoury — locked hard, and worth it.
-      b.room(16, -14, 12, 12, { h: 4.2, floorMat: 'concrete', wallMat: 'vaultsteel', doors: [{ side: 'w', at: 0, width: 2.6 }] });
+      b.room(16, -14, 12, 12, { h: 4.2, floorMat: 'concrete', wallMat: 'bunkersteel', doors: [{ side: 'w', at: 0, width: 2.6 }] });
       b.lamp(16, -14, 3.8, 0xffb45a, 8, 14);
       b.sign(9.7, -14, -Math.PI / 2, 'Armoury', { w: 2.6, h: 0.8, y: 3.2, color: '#C04A2A' });
       for (const [x, z, loot, lock] of [
@@ -59299,7 +59533,7 @@ const LOCATIONS = {
       b.terminal(16, -9.6, Math.PI, 0, { label: 'Armoury Register', onUse: 'ironhold_armoury' });
 
       // Chapter chamber at the north end.
-      b.room(0, -30, 14, 12, { h: 5.0, floorMat: 'tile', wallMat: 'vaultsteel', doors: [{ side: 's', at: 0, width: 2.6 }] });
+      b.room(0, -30, 14, 12, { h: 5.0, floorMat: 'tile', wallMat: 'bunkersteel', doors: [{ side: 's', at: 0, width: 2.6 }] });
       b.lamp(0, -30, 4.6, 0xcfe4ff, 10, 16);
       b.table(0, -33, 0, 5.0, 1.6);
       for (let i = 0; i < 6; i += 1) {
@@ -59371,7 +59605,7 @@ const LOCATIONS = {
       b.lamp(0, 0, 3.6, 0x9ade6a, 8, 16);
 
       // Sunken lab under the block: the only bunker from the rads.
-      b.room(0, -22, 16, 14, { h: 4.2, floorMat: 'tile', wallMat: 'vaultsteel', doors: [{ side: 'n', at: 0, width: 2.8 }] });
+      b.room(0, -22, 16, 14, { h: 4.2, floorMat: 'tile', wallMat: 'bunkersteel', doors: [{ side: 'n', at: 0, width: 2.8 }] });
       b.lamp(-4, -22, 3.8, 0x9fd8c0, 8, 14);
       b.lamp(4, -22, 3.8, 0x9fd8c0, 8, 14);
       b.terminal(0, -27.6, 0, 0, { label: 'Range Control', onUse: 'kiln_control' });
@@ -59495,7 +59729,8 @@ const LOCATIONS = {
         }
       }
       b.sign(cx + W / 2 + 0.4, cz, -Math.PI / 2, 'Longbar Yard\nFood By Ration Only', { w: 5.0, h: 1.4, y: 3.6, color: '#4FA88B' });
-      for (const oz of [-D / 2, D / 2]) b.lamp(cx + W / 2, cz + oz, 5.4, 0xffdca0, 12, 20);
+      // Gate lamps, on posts rising out of the yard wall's corner piers.
+      for (const oz of [-D / 2, D / 2]) b.lamp(cx + W / 2, cz + oz, 5.4, 0xffdca0, 12, 20, { mount: 4.6 });
 
       b.building(cx - 7, cz - 6, 9, 8, { h: 4.0, wallMat: 'concrete', floorMat: 'tile', doorSide: 'e' });
       b.sign(cx - 2.3, cz - 6, -Math.PI / 2, 'Yard Council', { w: 3.0, h: 0.8, y: 3.4 });
@@ -60297,7 +60532,7 @@ const ENCOUNTERS = {
       }
 
       // Equipment hut at the base.
-      b.room(-6, 4, 7, 6, { h: 3.2, floorMat: 'concrete', wallMat: 'vaultsteel', doors: [{ side: 'e', at: 0, width: 2.2 }] });
+      b.room(-6, 4, 7, 6, { h: 3.2, floorMat: 'concrete', wallMat: 'bunkersteel', doors: [{ side: 'e', at: 0, width: 2.2 }] });
       b.lamp(-6, 4, 2.9, 0x9fd8c0, 7, 12);
       b.terminal(-6, 6.4, Math.PI, 0, { label: 'Relay Control', onUse: 'relay_control' });
       b.container(-8.4, 2, 'locker', 0, { loot: [['cell_m', 30], ['photon', 1], ['manual_sci', 1], ['crown', 200]], locked: 60 });
@@ -60354,7 +60589,8 @@ const ENCOUNTERS = {
       b.wall(0, 23, 22, 'x', 4.0, 'concrete');
       b.wall(-11, 12, 22, 'z', 4.0, 'concrete');
       b.wall(11, 12, 22, 'z', 4.0, 'concrete');
-      for (const [x, z] of [[-5, 8], [5, 16]]) b.lamp(x, z, -1.2, 0x8fc4d8, 6, 12);
+      // Under the slab of collapsed roadway that roofs this end of the pit.
+      for (const [x, z] of [[-5, 8], [5, 16]]) b.lamp(x, z, -1.2, 0x8fc4d8, 6, 12, { mount: -0.6 });
       b.pipes(0, 10, 20, 'x', -1.0);
 
       b.container(-8, 20, 'locker', -4.5, { loot: [['railspike', 1], ['spike', 24]], locked: 80, label: 'Sealed Maintenance Locker' });
@@ -61621,7 +61857,7 @@ const NPCS = {
       sterile_reveal: {
         text: '…Elaborate.',
         options: [
-          { text: 'The vat process sterilises. Every one of them. Your species dies with this generation.', to: 'log_pass', act: ['flag:knows_sterile', 'xp:800'] },
+          { text: 'The tank process sterilises. Every one of them. Your species dies with this generation.', to: 'log_pass', act: ['flag:knows_sterile', 'xp:800'] },
         ],
       },
       sterile_deny: {
@@ -61629,7 +61865,7 @@ const NPCS = {
         options: [{ text: 'I’ll bring proof.', to: null, act: 'quest:stage:vats:3' }],
       },
       log: {
-        text: 'That is Arsenal telemetry. Give it to me. …This is the vat viability record. Sequential. Nine years of it.',
+        text: 'That is Arsenal telemetry. Give it to me. …This is the tank viability record. Sequential. Nine years of it.',
         options: [{ text: 'Read the last column.', to: 'log_pass' }],
       },
       log_pass: {
@@ -61648,7 +61884,7 @@ const NPCS = {
         options: [{ text: 'I’ll come back.', to: null }],
       },
       ending_peace: {
-        text: 'I am opening the vats and venting them. The ones already made will live out their lives here, fed and unbothered, and no more will be made. Take the sigil, take the catacombs, and go tell whoever sent you that the thing in the Sanctum listened.',
+        text: 'I am opening the tanks and venting them. The ones already made will live out their lives here, fed and unbothered, and no more will be made. Take the sigil, take the catacombs, and go tell whoever sent you that the thing in the Sanctum listened.',
         options: [{ text: 'Goodbye, Arbiter.', to: null, act: ['flag:ending_peace', 'give:vowsigil:1', 'quest:complete:vats'] }],
       },
     },
@@ -61714,9 +61950,9 @@ const NPCS = {
     hostileAfter: true,
     nodes: {
       root: {
-        text: 'Small thing. You came down the whole line and you are still breathing, which the Arbiter would call remarkable and I call an oversight. I am the Warden. I keep the vats. Nothing walks out of this hall.',
+        text: 'Small thing. You came down the whole line and you are still breathing, which the Arbiter would call remarkable and I call an oversight. I am the Warden. I keep the tanks. Nothing walks out of this hall.',
         options: [
-          { text: 'The vats sterilise you. All of you.', req: { flag: 'knows_sterile' }, to: 'sterile' },
+          { text: 'The tanks sterilise you. All of you.', req: { flag: 'knows_sterile' }, to: 'sterile' },
           { text: '[Parley] You’re guarding a dead end.', check: { skill: 'parley', dc: 90 }, to: 'parley_pass', fail: 'fight' },
           { text: 'Then I’ll walk out over you.', to: 'fight' },
         ],
@@ -61842,7 +62078,7 @@ const NPCS = {
       root: {
         text: 'Sit. Ironhold does not turn people away and it does not hand things out, which people find contradictory until they have sat here a while. The Order recovers what the old world built and keeps it from being used badly a second time. You want something from that shelf. Tell me which shelf.',
         options: [
-          { text: 'There are vats west of here making people into soldiers.', to: 'vats' },
+          { text: 'There are conversion tanks west of here making people into soldiers.', to: 'vats' },
           { text: 'My bunker is out of food and I need parts.', to: 'water' },
           { text: 'What would you want in return?', to: 'terms' },
           { text: 'Nothing yet.', to: null },
@@ -61856,7 +62092,7 @@ const NPCS = {
         ],
       },
       stung: {
-        text: '…Yes. It is. I have made it two thousand times and I have never once called it that out loud. — Very well. Prove the vats to me with something other than your word, and Ironhold will open a door for you. Not an army. A door. It is what we have.',
+        text: '…Yes. It is. I have made it two thousand times and I have never once called it that out loud. — Very well. Prove the tanks to me with something other than your word, and Ironhold will open a door for you. Not an army. A door. It is what we have.',
         options: [{ text: 'A door is enough.', to: null, act: ['quest:start:vow_induction', 'quest:stage:vow_induction:1', 'flag:mott_moved', 'xp:600', 'rep:ironvow:+15'] }],
       },
       unmoved: {
@@ -61974,7 +62210,7 @@ const NPCS = {
         options: [
           { text: 'Show me what you will sell.', shop: true, to: 'root' },
           { text: 'What’s behind the line?', to: 'behind' },
-          { text: 'I have proof of the vats.', req: { flag: 'vow_proof' }, to: 'unseal' },
+          { text: 'I have proof of the tanks.', req: { flag: 'vow_proof' }, to: 'unseal' },
           { text: 'Fair enough.', to: null },
         ],
       },
@@ -62366,10 +62602,10 @@ const TERMINALS = {
     if (!pass) return { title: 'Security Console', body: 'PAPILLON ARSENAL — RESTRICTED\nInsert credential.\n\n(Arsenal Keycard, or Technics 70.)' };
     return {
       title: 'Security Console',
-      body: `CREDENTIAL ${hasCard ? 'ACCEPTED' : 'BYPASSED'}\n\nINTERNAL DEFENCE: ARMED\nVAT HALL: SEALED\nREACTOR ANNEX: LOCKED\n\nAutomated sentries respond to any unbadged movement past the central hall.`,
+      body: `CREDENTIAL ${hasCard ? 'ACCEPTED' : 'BYPASSED'}\n\nINTERNAL DEFENCE: ARMED\nTANK HALL: SEALED\nREACTOR ANNEX: LOCKED\n\nAutomated sentries respond to any unbadged movement past the central hall.`,
       choices: [
         { label: 'Disarm internal defence grid', act: ['flag:arsenal_disarmed', 'xp:400'] },
-        { label: 'Unseal the vat hall', act: ['flag:vats_open', 'quest:stage:vats:3', 'xp:300'] },
+        { label: 'Unseal the tank hall', act: ['flag:vats_open', 'quest:stage:vats:3', 'xp:300'] },
       ],
     };
   },
@@ -62723,7 +62959,7 @@ class Actor {
       if (sees) {
         this.alertT = 2.5;
         this.lastSeen = { x: target.x, z: target.z };
-      } else this.alertT -= dt;
+      } else this.alertT -= dt * (ctx.forgetRate || 1);
 
       if (this.state === 'idle' && (sees || this.hurtRecently)) {
         this.state = 'alert';
@@ -64022,8 +64258,11 @@ class Player {
     // than only the flat base and leaving a crouch-walk oddly untouched. Head
     // bob and the sprint camera drop key off this same number, so the stride
     // keeps up with the legs instead of skating.
+    // Fleet Step's Action Points were "for movement only" and were spent on
+    // nothing; they are legs now.
+    const footMul = 1 + (mods.derived.moveAp || 0) * 0.06;
     const cheatSpeed = (__M.cheats && __M.cheats().doubleSpeed) ? 2 : 1;
-    const speed = speedBase * sprintMul * crouchMul * adsMul * legMul * cheatSpeed;
+    const speed = speedBase * sprintMul * crouchMul * adsMul * legMul * footMul * cheatSpeed;
 
     const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
@@ -64600,6 +64839,9 @@ class UI {
     this.hpText.textContent = `${Math.max(0, Math.ceil(c.hp))} / ${c.maxHp()}`;
     if (this.gaugeCap && this.gaugeCap.textContent !== T('biomarkers')) this.gaugeCap.textContent = T('biomarkers');
     this.enFill.style.width = `${Math.max(0, (c.energy ?? 100) / c.maxEnergy()) * 100}%`;
+    // The torch button is a toggle, so it shows the flashlight's actual state
+    // rather than lighting up only while a thumb is on it.
+    if (this.tTorch) this.tTorch.dataset.on = p.flashlightOn ? '1' : '0';
 
     // Status chips only appear when they mean something.
     const chips = [];
@@ -65208,6 +65450,49 @@ class UI {
       };
       body.appendChild(add);
     }
+
+    // Backup and restore, offered in both modes. A save file is the only
+    // thing that survives moving between the itch player, a downloaded copy
+    // and a different browser, so it is never more than two taps away.
+    body.appendChild(el('hr'));
+    const tools = el('div', 'save-tools');
+    const backup = el('button', null, 'Back up all saves to a file');
+    backup.onclick = () => {
+      audio.play('ui_accept', { bus: 'ui', volume: 0.3 });
+      g.downloadSaves();
+    };
+    tools.appendChild(backup);
+
+    const restore = el('button', null, 'Restore saves from a file');
+    const picker = el('input');
+    picker.type = 'file';
+    picker.accept = 'application/json,.json';
+    picker.style.display = 'none';
+    picker.onchange = () => {
+      const file = picker.files && picker.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const r = g.importSaves(String(reader.result || ''));
+        if (r.ok) {
+          this.notify(`Restored ${r.added} save${r.added === 1 ? '' : 's'}`, 'good');
+          this.saveSlots(mode);
+        } else {
+          this.notify(r.reason ? `Could not restore — ${r.reason}` : 'Could not restore that file', 'bad');
+        }
+      };
+      reader.onerror = () => this.notify('Could not read that file', 'bad');
+      reader.readAsText(file);
+      picker.value = '';
+    };
+    restore.onclick = () => {
+      audio.play('ui_accept', { bus: 'ui', volume: 0.3 });
+      picker.click();
+    };
+    tools.appendChild(restore);
+    tools.appendChild(picker);
+    body.appendChild(tools);
+    body.appendChild(el('p', 'hint', 'Saves live in this browser and survive new versions of the game. They do not follow you to a different browser, a private window, or a downloaded copy — back up to a file for that.'));
   }
 
   // -- pause / main menu ---------------------------------------------------
@@ -65974,19 +66259,30 @@ class UI {
     this.touchHost = host;
     host.innerHTML = '';
 
-    // Left thumb: movement stick. Appears where the thumb lands rather than at
-    // a fixed spot, which is the difference between usable and not on a phone.
-    this.stick = el('div', 'stick');
-    this.stick.appendChild(el('i', 'stick-base'));
-    this.stick.appendChild(el('i', 'stick-nub'));
-    host.appendChild(this.stick);
+    // Two analog sticks, parked in the bottom corners. They are drawn dim and
+    // always visible so a new player can see where to put their thumbs, and
+    // they light up under a thumb. Pressing the pad itself drives it from the
+    // pad centre, console-style; pressing anywhere else on that half of the
+    // screen brings the pad to the thumb instead, which is what makes this
+    // playable one-handed on a phone. The docks are zero-sized anchors, so the
+    // JS can read the centre back at whatever size the CSS settled on.
+    this.dockL = el('i', 'stick-dock dock-l');
+    this.dockR = el('i', 'stick-dock dock-r');
+    host.appendChild(this.dockL);
+    host.appendChild(this.dockR);
 
-    // Right thumb: look stick. Same floating behaviour as the move stick —
-    // appears wherever the thumb lands on its half of the screen.
-    this.stickR = el('div', 'stick look');
-    this.stickR.appendChild(el('i', 'stick-base'));
-    this.stickR.appendChild(el('i', 'stick-nub'));
-    host.appendChild(this.stickR);
+    const mkStick = (cls, label) => {
+      const s = el('div', `stick${cls}`);
+      s.appendChild(el('i', 'stick-base'));
+      s.appendChild(el('i', 'stick-ring'));
+      s.appendChild(el('i', 'stick-nub'));
+      s.appendChild(el('i', 'stick-label', label));
+      s.dataset.on = '0';
+      host.appendChild(s);
+      return s;
+    };
+    this.stick = mkStick('', 'Move');
+    this.stickR = mkStick(' look', 'Look');
 
     // Pointer events rather than touch events, so the same controls work with a
     // finger, a stylus or a mouse — useful on hybrid laptops and for testing.
@@ -66012,14 +66308,47 @@ class UI {
     btn('sprint', 'RUN', () => { g.input.sprint = true; }, () => { g.input.sprint = false; });
     btn('use', 'USE', () => g.interact());
     btn('med', 'MED', () => g.quickHeal());
+    // A toggle, not a hold: its lit state is driven from the player each frame
+    // in updateHud rather than by the press itself.
+    this.tTorch = btn('torch', 'LIGHT', () => g.player?.toggleFlashlight());
     btn('fix', 'FIX', () => g.repairWeapon());
     btn('inv', 'BAG', () => g.togglePanel('inventory'));
     btn('menu', '≡', () => g.togglePanel('pause'));
     this.tSwap = btn('swap', 'SWAP', () => g.cycleWeapon());
+
+    this.parkSticks();
+  }
+
+  // Where a stick sits when nothing is touching it: on its dock. Read from the
+  // live layout rather than hard-coded, so the media query that shrinks the
+  // pads on a short screen moves them correctly too.
+  dockCentre(which) {
+    const d = which === 'l' ? this.dockL : this.dockR;
+    if (!d || !d.getBoundingClientRect) return { x: 0, y: 0 };
+    const r = d.getBoundingClientRect();
+    return { x: r.left, y: r.top };
+  }
+
+  parkStick(stick, which) {
+    if (!stick) return;
+    const c = this.dockCentre(which);
+    stick.style.left = `${c.x}px`;
+    stick.style.top = `${c.y}px`;
+    stick.style.setProperty('--nx', '0px');
+    stick.style.setProperty('--ny', '0px');
+    stick.dataset.on = '0';
+  }
+
+  parkSticks() {
+    this.parkStick(this.stick, 'l');
+    this.parkStick(this.stickR, 'r');
   }
 
   setTouchVisible(on) {
     this.touchHost.dataset.on = on ? '1' : '0';
+    // Their docks have no layout while the host is hidden, so park them again
+    // the moment it is shown or the pads sit at the top-left corner.
+    if (on) this.parkSticks();
   }
 }
 
@@ -66154,6 +66483,11 @@ class Game {
   // =========================================================================
   async start() {
     this.ui.setTouchVisible(this.settings.touch);
+    // Ask the browser to treat this origin's storage as worth keeping. Chrome
+    // and Firefox honour it silently for anything the player has engaged with;
+    // where it is refused or missing, nothing changes and the file backup in
+    // the save menu remains the guarantee.
+    try { navigator.storage?.persist?.(); } catch { /* not supported */ }
     this.ui.characterCreation(async (draft) => {
       this.char = new Character({ name: draft.name, attrs: draft.attrs, traits: draft.traits, tags: draft.tags });
       this.player = new Player(this);
@@ -66390,6 +66724,13 @@ class Game {
     this.ui.notify(built.name || def.name, this.encounterId ? '' : 'good');
     if (built.intro) this.ui.encounterBanner(built.name, built.intro);
     this._flickerLights = built.lights?.filter((l) => l.userData?.flicker) || [];
+    // Remember what each one was authored at. The flicker used to overwrite
+    // intensity with a fixed figure, so a campfire lit at 9 and a warning
+    // beacon lit at 8 were both dragged down to about 4 the first time they
+    // were seen — every flame in the game ended up the same brightness.
+    for (const l of this._flickerLights) {
+      if (l.userData.baseIntensity === undefined) l.userData.baseIntensity = l.intensity;
+    }
     this.ambientRads = built.rads || 0;
     const grade = GRADES[this.encounterId ? 'wasteland' : id];
     if (this.post && grade) this.post.setGrade(grade);
@@ -66972,6 +67313,9 @@ class Game {
         colliders: this.colliders,
         get alarm() { return this.game.alarm; },
         get playerSneaking() { return this.game.player.crouch && Math.hypot(this.game.player.vel.x, this.game.player.vel.z) < 2; },
+        // How fast a hunter gives up once it loses sight of you. Shade doubles
+        // it; before, the perk's multiplier was read by nothing.
+        get forgetRate() { return this.game.char.mods().mult.stealth ?? 1; },
         groundAt: (x, z, y) => this.groundAt(x, z, y),
         blocked: (a, b, c, d, e, f) => this.blocked(a, b, c, d, e, f),
         damagePlayer: (amount, type, from, def) => this.player.hurt(amount, type, from),
@@ -67161,7 +67505,13 @@ class Game {
     const w = this.player.weapon();
     if (w.cls === 'thrown') { this.ui.notify("Can't focus-target with a thrown weapon", 'bad'); return; }
     if (!this.player.canFire()) { this.ui.notify(__M.T('weaponempty'), 'bad'); return; }
-    if ((this.char.energy ?? 100) < 30 && !__M.cheats().infiniteAp) { this.ui.notify(__M.T('noenergy'), 'bad'); return; }
+    // Snapshooter shoots from the hip and never lines one up.
+    if (this.char.flag('noAimedShot')) {
+      this.ui.notify('You do not line shots up — Snapshooter.', 'bad');
+      audio.play('ui_deny', { bus: 'ui', volume: 0.3 });
+      return;
+    }
+    if ((this.char.energy ?? 100) < this.attackFocusCost() && !__M.cheats().infiniteAp) { this.ui.notify(__M.T('noenergy'), 'bad'); return; }
     const targets = this.findAttackFocusTargets();
     if (!targets.length) { this.ui.notify(__M.T('notarget'), 'bad'); return; }
     document.exitPointerLock?.();
@@ -67199,7 +67549,7 @@ class Game {
     this.ui.closeAttackFocus();
     this.ui.crosshair.dataset.hidden = '1';
     this.char.spendRound(this.player.weaponId, 1);
-    if (!__M.cheats().infiniteAp) this.char.energy = Math.max(0, (this.char.energy ?? 100) - 30);
+    if (!__M.cheats().infiniteAp) this.char.energy = Math.max(0, (this.char.energy ?? 100) - this.attackFocusCost());
     this.char.wearWeapon(this.player.weaponId, 1);
 
     const cam = this.player.camera;
@@ -67324,6 +67674,15 @@ class Game {
   // =========================================================================
   // Quests
   // =========================================================================
+  // What one aimed shot costs. Two Action Points by default; Fast Hands and
+  // anything else carrying `apShot` takes a whole point off, which was the
+  // perk's stated effect and previously did nothing whatsoever.
+  attackFocusCost() {
+    const m = this.char.mods();
+    const unit = __M.AP_ENERGY;
+    return Math.max(unit, (2 + (m.derived.apShot || 0)) * unit);
+  }
+
   startQuest(id) {
     if (!QUESTS[id] || this.quests[id]) return;
     this.quests[id] = { id, stage: 0, done: false, kills: 0 };
@@ -67371,8 +67730,8 @@ class Game {
   checkEndings() {
     const c = this.char;
     if (c.hasFlag('ending_peace') || c.hasFlag('vats_purged')) {
-      if (c.hasFlag('aquifer_fitted')) this.win('The Long Road', 'Bunker 100 eats, and the vats are finished. Two problems that were never the same problem, solved by the same pair of boots. The Director writes your name in the log without a number after it.');
-      else this.win('The Vats Are Finished', 'The vats are cold and nothing new will crawl out of them. Somewhere behind you a bunker is still counting days it does not have — but this, at least, is done.');
+      if (c.hasFlag('aquifer_fitted')) this.win('The Long Road', 'Bunker 100 eats, and the tanks are finished. Two problems that were never the same problem, solved by the same pair of boots. The Director writes your name in the log without a number after it.');
+      else this.win('The Tanks Are Cold', 'The tanks are cold and nothing new will crawl out of them. Somewhere behind you a bunker is still counting days it does not have — but this, at least, is done.');
     }
   }
 
@@ -67650,6 +68009,7 @@ class Game {
       if (this.char.tokens < cost) { this.ui.notify(`That costs ${cost} tokens.`, 'bad'); return this.advanceDialogue(npcId, opt.to); }
       this.char.pay(cost);
       this.char.hp = this.char.maxHp();
+      this.char.dirty();
       this.char.poison = 0;
       this.char.rads = Math.max(0, this.char.rads - 120);
       this.cure();
@@ -67838,80 +68198,130 @@ class Game {
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('wheel', (e) => { if (this.locked) this.cycleWeapon(e.deltaY > 0 ? 1 : -1); }, { passive: true });
 
-    // --- touch: left half drives the stick, right half drives the camera.
+    // --- touch: two analog sticks -------------------------------------------
+    // Each stick owns half the screen. A thumb landing on or near its parked
+    // pad drives it from the pad centre, the way a physical stick works; a
+    // thumb landing anywhere else on that half brings the pad to the thumb
+    // instead, which is what keeps this playable when you are holding the
+    // phone one-handed and cannot reach the corner.
+    //
     // Listeners sit on the document so the surface element can stay
-    // pointer-events:none and never steal a desktop click; touches that land on
-    // a control button or an open panel are filtered out by target.
-    // Deflection persists here rather than only firing on touchmove, since a
-    // held analog stick must keep turning the camera every frame even while
-    // the thumb sits still — readKeyboard() reads this each tick.
+    // pointer-events:none and never steal a desktop click; touches that land
+    // on a face button or an open panel are filtered out by target.
+    //
+    // Deflection is stored rather than only acted on during touchmove, since a
+    // held stick must keep moving and turning every frame while the thumb sits
+    // perfectly still — the update loop reads these each tick.
     this.touchStickR = { id: null, ox: 0, oy: 0, nx: 0, ny: 0 };
     const stickState = { id: null, ox: 0, oy: 0 };
     const surface = document;
     const onControls = (t) => !!(t.target?.closest?.('#touch, #panels, #boot'));
+
+    // How far from a parked pad still counts as grabbing that pad rather than
+    // planting a new one. Generous, because thumbs are imprecise and landing
+    // just outside the ring should still feel like taking hold of it.
+    const GRAB = 130;
+    const MAX = 62;
+
+    const nearDock = (t, which) => {
+      const c = this.ui.dockCentre?.(which);
+      if (!c || (!c.x && !c.y)) return false;
+      return Math.hypot(t.clientX - c.x, t.clientY - c.y) <= GRAB;
+    };
+
+    // Bind a touch to a stick, deciding where the stick's origin should be.
+    const grab = (state, el2, which, t) => {
+      const docked = nearDock(t, which);
+      const c = docked ? this.ui.dockCentre(which) : { x: t.clientX, y: t.clientY };
+      state.id = t.identifier;
+      state.ox = c.x;
+      state.oy = c.y;
+      el2.dataset.on = '1';
+      el2.style.left = `${c.x}px`;
+      el2.style.top = `${c.y}px`;
+    };
+
+    // Shared deflection maths. Returns the nub offset in pixels so the caller
+    // can also drive whatever that stick controls.
+    const deflect = (state, el2, t) => {
+      const dx = t.clientX - state.ox, dy = t.clientY - state.oy;
+      const d = Math.min(MAX, Math.hypot(dx, dy)) || 0;
+      const a = Math.atan2(dy, dx);
+      const nx = Math.cos(a) * d, ny = Math.sin(a) * d;
+      el2.style.setProperty('--nx', `${nx}px`);
+      el2.style.setProperty('--ny', `${ny}px`);
+      return { nx, ny, d };
+    };
+
+    const driveMove = (t) => {
+      const { nx, ny, d } = deflect(stickState, this.ui.stick, t);
+      this.input.move.set(nx / MAX, -ny / MAX);
+      this.input.sprint = d > MAX * 0.86;
+    };
+    const driveLook = (t) => {
+      const { nx, ny } = deflect(this.touchStickR, this.ui.stickR, t);
+      this.touchStickR.nx = nx / MAX;
+      this.touchStickR.ny = ny / MAX;
+    };
+
     surface.addEventListener('touchstart', (e) => {
       for (const t of e.changedTouches) {
         if (onControls(t)) continue;
-        if (t.clientX < window.innerWidth * 0.45 && stickState.id === null) {
-          stickState.id = t.identifier; stickState.ox = t.clientX; stickState.oy = t.clientY;
-          this.ui.stick.dataset.on = '1';
-          this.ui.stick.style.left = `${t.clientX}px`;
-          this.ui.stick.style.top = `${t.clientY}px`;
+        // Grabbing a pad directly wins over which half the touch is on, so
+        // reaching across for the far stick still works.
+        const wantsLeft = nearDock(t, 'l')
+          || (!nearDock(t, 'r') && t.clientX < window.innerWidth * 0.45);
+        if (wantsLeft && stickState.id === null) {
+          grab(stickState, this.ui.stick, 'l', t);
+          // Applied immediately: press and hold off-centre and you move at
+          // once, rather than standing still until the thumb happens to slide.
+          driveMove(t);
         } else if (this.touchStickR.id === null) {
-          this.touchStickR.id = t.identifier; this.touchStickR.ox = t.clientX; this.touchStickR.oy = t.clientY;
           this.touchStickR.nx = 0; this.touchStickR.ny = 0;
-          this.ui.stickR.dataset.on = '1';
-          this.ui.stickR.style.left = `${t.clientX}px`;
-          this.ui.stickR.style.top = `${t.clientY}px`;
+          grab(this.touchStickR, this.ui.stickR, 'r', t);
+          driveLook(t);
         }
       }
     }, { passive: true });
+
     surface.addEventListener('touchmove', (e) => {
       for (const t of e.changedTouches) {
-        if (t.identifier === stickState.id) {
-          const dx = t.clientX - stickState.ox, dy = t.clientY - stickState.oy;
-          const max = 62;
-          const d = Math.min(max, Math.hypot(dx, dy)) || 0;
-          const a = Math.atan2(dy, dx);
-          const nx = Math.cos(a) * d, ny = Math.sin(a) * d;
-          this.input.move.set(nx / max, -ny / max);
-          this.ui.stick.style.setProperty('--nx', `${nx}px`);
-          this.ui.stick.style.setProperty('--ny', `${ny}px`);
-          this.input.sprint = d > max * 0.86;
-        } else if (t.identifier === this.touchStickR.id) {
-          const dx = t.clientX - this.touchStickR.ox, dy = t.clientY - this.touchStickR.oy;
-          const max = 62;
-          const d = Math.min(max, Math.hypot(dx, dy)) || 0;
-          const a = Math.atan2(dy, dx);
-          const nx = Math.cos(a) * d, ny = Math.sin(a) * d;
-          this.touchStickR.nx = nx / max;
-          this.touchStickR.ny = ny / max;
-          this.ui.stickR.style.setProperty('--nx', `${nx}px`);
-          this.ui.stickR.style.setProperty('--ny', `${ny}px`);
-        }
+        if (t.identifier === stickState.id) driveMove(t);
+        else if (t.identifier === this.touchStickR.id) driveLook(t);
       }
     }, { passive: true });
+
     const endTouch = (e) => {
       for (const t of e.changedTouches) {
         if (t.identifier === stickState.id) {
           stickState.id = null;
           this.input.move.set(0, 0);
           this.input.sprint = false;
-          this.ui.stick.dataset.on = '0';
-          this.ui.stick.style.setProperty('--nx', '0px');
-          this.ui.stick.style.setProperty('--ny', '0px');
+          this.ui.parkStick(this.ui.stick, 'l');
         }
         if (t.identifier === this.touchStickR.id) {
           this.touchStickR.id = null;
           this.touchStickR.nx = 0; this.touchStickR.ny = 0;
-          this.ui.stickR.dataset.on = '0';
-          this.ui.stickR.style.setProperty('--nx', '0px');
-          this.ui.stickR.style.setProperty('--ny', '0px');
+          this.ui.parkStick(this.ui.stickR, 'r');
         }
       }
     };
     surface.addEventListener('touchend', endTouch, { passive: true });
     surface.addEventListener('touchcancel', endTouch, { passive: true });
+
+    // Rotating the phone moves the docks. Anything held at the moment of the
+    // turn is released rather than left anchored to a corner that no longer
+    // exists, and both pads are re-parked against the new layout.
+    const reparkSticks = () => {
+      stickState.id = null;
+      this.touchStickR.id = null;
+      this.touchStickR.nx = 0; this.touchStickR.ny = 0;
+      this.input.move.set(0, 0);
+      this.input.sprint = false;
+      this.ui.parkSticks?.();
+    };
+    window.addEventListener('resize', reparkSticks);
+    window.addEventListener('orientationchange', reparkSticks);
   }
 
   readKeyboard(dt = 0.016) {
@@ -68031,33 +68441,87 @@ class Game {
   // ever wrote a single `vault100.save` key — that gets migrated into slot
   // form the first time the index is read.
   // =========================================================================
+  // The storage keys are frozen. They carry no build number and no version,
+  // deliberately: on itch.io every HTML upload of every game is served from
+  // the one origin, so browser storage is shared between builds, and a save
+  // survives a re-upload only for as long as the key it lives under does not
+  // move. Renaming these is the one change that would lose everybody's game.
+  static get KEY() { return { index: 'vault100.saveIndex', slot: 'vault100.save.', legacy: 'vault100.save' }; }
+
+  // Prefixes this game will adopt saves from. Scanning is limited to these so
+  // that sharing an origin with every other game on itch never means reading,
+  // listing or touching somebody else's data.
+  static get OWNED_PREFIXES() { return ['vault100.save.', 'bunker100.save.']; }
+
+  // Rebuild index entries for any payload sitting in storage that the index
+  // has lost track of — a half-written index, a build that named its slots
+  // differently, a manual edit. The payloads are the truth; the index is only
+  // a convenience for listing them without parsing every one.
+  _adoptOrphans(idx) {
+    let found = 0;
+    let n = 0;
+    try { n = localStorage.length; } catch { return 0; }
+    for (let i = 0; i < n; i += 1) {
+      let key = null;
+      try { key = localStorage.key(i); } catch { continue; }
+      if (!key) continue;
+      const prefix = Game.OWNED_PREFIXES.find((pfx) => key.startsWith(pfx));
+      if (!prefix) continue;
+      const id = key.slice(prefix.length);
+      if (!id || idx.some((sl) => sl.id === id)) continue;
+      let data = null;
+      try { data = JSON.parse(localStorage.getItem(key)); } catch { continue; }
+      if (!data || !data.char) continue;   // not one of ours, or corrupt
+      idx.push({
+        id, ts: data.ts || Date.now(), recovered: true,
+        name: (data.char.name || 'Occupant') + (this.isAutosaveSlot(id) ? ' (Autosave)' : ''),
+        auto: this.isAutosaveSlot(id) || undefined,
+        level: data.char.level || 1,
+        location: LOCATIONS[data.locationId]?.name || data.locationId || 'Unknown',
+      });
+      found += 1;
+    }
+    return found;
+  }
+
   _readIndex() {
-    let raw = null;
-    try { raw = localStorage.getItem('vault100.saveIndex'); } catch { /* fall through */ }
-    let idx = raw ? JSON.parse(raw) : [];
-    // Migrate a pre-multi-slot save, if one exists and hasn't been folded in yet.
+    let idx = [];
+    try {
+      const raw = localStorage.getItem(Game.KEY.index);
+      if (raw) idx = JSON.parse(raw);
+    } catch {
+      // A corrupt or unreadable index is not a reason to lose saves: fall
+      // through with an empty list and let the orphan scan rebuild it from
+      // the payloads, which are stored separately and one key each.
+      idx = [];
+    }
+    if (!Array.isArray(idx)) idx = [];
+    idx = idx.filter((sl) => sl && typeof sl.id === 'string');
+
+    // Fold in a pre-multi-slot save. The original key is left in place rather
+    // than removed, so an older build opened afterwards still finds its game.
     let legacy = null;
-    try { legacy = localStorage.getItem('vault100.save'); } catch { /* fall through */ }
-    if (legacy && !idx.some((s) => s.legacy)) {
+    try { legacy = localStorage.getItem(Game.KEY.legacy); } catch { /* fall through */ }
+    if (legacy && !idx.some((sl) => sl.legacy)) {
       try {
         const data = JSON.parse(legacy);
-        const id = `slot_${Date.now()}`;
-        localStorage.setItem(`vault100.save.${id}`, legacy);
+        const id = 'slot_legacy';
+        localStorage.setItem(Game.KEY.slot + id, legacy);
         idx.push({
-          id, ts: Date.now(), legacy: true,
+          id, ts: data.ts || Date.now(), legacy: true,
           name: data.char?.name || 'Occupant',
           level: data.char?.level || 1,
           location: LOCATIONS[data.locationId]?.name || data.locationId || 'Unknown',
         });
-        localStorage.setItem('vault100.saveIndex', JSON.stringify(idx));
-        localStorage.removeItem('vault100.save');
-      } catch { /* corrupt legacy save — ignore it */ }
+      } catch { /* corrupt legacy save — leave it alone rather than bin it */ }
     }
+
+    if (this._adoptOrphans(idx)) this._writeIndex(idx);
     return idx;
   }
 
   _writeIndex(idx) {
-    try { localStorage.setItem('vault100.saveIndex', JSON.stringify(idx)); } catch { /* private mode etc. */ }
+    try { localStorage.setItem(Game.KEY.index, JSON.stringify(idx)); } catch { /* private mode etc. */ }
   }
 
   listSaves() {
@@ -68118,34 +68582,142 @@ class Game {
       level: this.char.level || 1,
       location: LOCATIONS[this.locationId]?.name || this.locationId || 'Unknown',
     };
-    try {
-      localStorage.setItem(`vault100.save.${id}`, JSON.stringify(data));
-      const idx = this._readIndex().filter((s) => s.id !== id);
+    const payload = JSON.stringify(Object.assign({ ts: meta.ts }, data));
+    const commit = () => {
+      localStorage.setItem(Game.KEY.slot + id, payload);
+      const idx = this._readIndex().filter((sl) => sl.id !== id);
       idx.push(meta);
       this._writeIndex(idx);
+    };
+    try {
+      commit();
       return id;
     } catch {
-      // Private mode or an embedded frame: keep it in memory so the session
-      // still has a restore point.
+      // Out of quota is the common cause, and the right answer is to make
+      // room rather than to stop saving. Retire the oldest autosave and try
+      // once more; manual saves are never sacrificed to make space.
+      const ring = this._readIndex()
+        .filter((sl) => this.isAutosaveSlot(sl.id) && sl.id !== id)
+        .sort((a, b) => a.ts - b.ts);
+      if (ring.length) {
+        this.deleteSave(ring[0].id);
+        try {
+          commit();
+          return id;
+        } catch { /* still no room — fall through to memory */ }
+      }
+      // Private mode or a sandboxed frame: keep it in memory so the session
+      // still has a restore point, and say so, because it will not survive.
       this._memSave = data;
       this._memMeta = meta;
-      this.ui.notify('Saved in memory (browser storage unavailable)', '');
+      this.ui.notify('Browser storage unavailable — saved in memory only. Back up from the Save menu.', 'bad');
       return id;
     }
+  }
+
+  // =========================================================================
+  // Backup and restore
+  // =========================================================================
+  // Browser storage is tied to the exact origin the page was served from, and
+  // that is the one thing a game cannot control. A player who downloads the
+  // file to play offline, or who plays after itch changes which domain serves
+  // HTML builds, lands on a different origin with an empty cupboard. A save
+  // file is the only thing that crosses that line, so the game can always
+  // write one and always read one back.
+  exportSaves() {
+    const idx = this._readIndex();
+    const slots = {};
+    for (const meta of idx) {
+      try {
+        const raw = localStorage.getItem(Game.KEY.slot + meta.id);
+        if (raw) slots[meta.id] = raw;
+      } catch { /* skip unreadable slots rather than abandon the backup */ }
+    }
+    if (!Object.keys(slots).length && this._memSave) {
+      slots[this._memMeta.id] = JSON.stringify(this._memSave);
+      idx.push(this._memMeta);
+    }
+    return {
+      format: 'bunker100.saves', v: 1, exported: Date.now(),
+      index: idx, slots,
+    };
+  }
+
+  downloadSaves() {
+    const bundle = this.exportSaves();
+    const count = Object.keys(bundle.slots).length;
+    if (!count) { this.ui.notify('No saves to back up', 'bad'); return 0; }
+    try {
+      const blob = new Blob([JSON.stringify(bundle, null, 1)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const d = new Date();
+      const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      a.href = url;
+      a.download = `bunker100-saves-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      this.ui.notify(`Backed up ${count} save${count === 1 ? '' : 's'}`, 'good');
+      return count;
+    } catch {
+      this.ui.notify('Could not write the backup file', 'bad');
+      return 0;
+    }
+  }
+
+  // Merges rather than replaces. Nothing already in storage is removed, and a
+  // slot id that collides is brought in under a fresh id, so restoring a
+  // backup can only ever add games — never destroy the ones already there.
+  importSaves(bundle) {
+    let obj = bundle;
+    if (typeof obj === 'string') {
+      try { obj = JSON.parse(obj); } catch { return { ok: false, added: 0, reason: 'not a save file' }; }
+    }
+    if (!obj || obj.format !== 'bunker100.saves' || !obj.slots) {
+      return { ok: false, added: 0, reason: 'not a Bunker 100 backup' };
+    }
+    const idx = this._readIndex();
+    const taken = new Set(idx.map((sl) => sl.id));
+    let added = 0;
+    for (const [oldId, raw] of Object.entries(obj.slots)) {
+      let data = null;
+      try { data = JSON.parse(raw); } catch { continue; }
+      if (!data || !data.char) continue;
+      let id = oldId;
+      if (taken.has(id)) id = `slot_${Date.now()}_${added}`;
+      const meta = (obj.index || []).find((m) => m.id === oldId) || {};
+      try {
+        localStorage.setItem(Game.KEY.slot + id, raw);
+      } catch { return { ok: added > 0, added, reason: 'ran out of browser storage' }; }
+      idx.push({
+        id, ts: meta.ts || data.ts || Date.now(),
+        name: meta.name || data.char.name || 'Occupant',
+        auto: this.isAutosaveSlot(id) || undefined,
+        level: meta.level || data.char.level || 1,
+        location: meta.location || LOCATIONS[data.locationId]?.name || 'Unknown',
+        imported: true,
+      });
+      taken.add(id);
+      added += 1;
+    }
+    this._writeIndex(idx);
+    return { ok: added > 0, added };
   }
 
   load(slotId = null) {
     let data = null;
     if (slotId) {
       let raw = null;
-      try { raw = localStorage.getItem(`vault100.save.${slotId}`); } catch { /* fall through */ }
+      try { raw = localStorage.getItem(Game.KEY.slot + slotId); } catch { /* fall through */ }
       data = raw ? JSON.parse(raw) : (this._memMeta?.id === slotId ? this._memSave : null);
     } else {
       // No slot given: fall back to the most recent one.
       const latest = this.listSaves()[0];
       if (latest) {
         let raw = null;
-        try { raw = localStorage.getItem(`vault100.save.${latest.id}`); } catch { /* fall through */ }
+        try { raw = localStorage.getItem(Game.KEY.slot + latest.id); } catch { /* fall through */ }
         data = raw ? JSON.parse(raw) : null;
       } else {
         data = this._memSave;
@@ -68193,7 +68765,7 @@ class Game {
   }
 
   deleteSave(slotId) {
-    try { localStorage.removeItem(`vault100.save.${slotId}`); } catch { /* ignore */ }
+    try { localStorage.removeItem(Game.KEY.slot + slotId); } catch { /* ignore */ }
     this._writeIndex(this._readIndex().filter((s) => s.id !== slotId));
     if (this._memMeta?.id === slotId) { this._memMeta = null; this._memSave = null; }
   }
@@ -68294,9 +68866,13 @@ class Game {
         this.dust.position.set(0, 0, 0);
       }
 
-      // Brazier flicker: cheap, and it's what sells a lit interior.
+      // Brazier flicker: cheap, and it's what sells a lit interior. Scaled
+      // against each light's own brightness so a fire stays as bright as it
+      // was built to be, and the noise term is bounded so nothing strobes.
+      const flickerT = performance.now() * 0.007;
       for (const l of this._flickerLights || []) {
-        l.intensity = 4.2 + Math.sin(performance.now() * 0.007 + l.position.x) * 0.9 + Math.random() * 0.5;
+        const base = l.userData.baseIntensity ?? l.intensity;
+        l.intensity = base * (0.9 + Math.sin(flickerT + l.position.x) * 0.08 + Math.random() * 0.05);
       }
 
       if (this.char.rads > 120 && Math.random() < dt * (this.char.rads / 400)) {
@@ -69183,7 +69759,7 @@ class Game {
     if (inArsenal) {
       this.paused = true;
       document.exitPointerLock?.();
-      this.ui.gameOver('Caught in the Light', 'The containment field folded while you were still three corridors from the lift. The vats stopped, and so did everything else in Papillon Arsenal, including you. It worked. It just wasn’t survivable.');
+      this.ui.gameOver('Caught in the Light', 'The containment field folded while you were still three corridors from the lift. The tanks stopped, and so did everything else in Papillon Arsenal, including you. It worked. It just wasn’t survivable.');
       return;
     }
     audio.play('explode', { volume: 0.9 });
