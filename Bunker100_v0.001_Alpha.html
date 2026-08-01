@@ -61008,7 +61008,26 @@ const NPCS = {
       },
       done: {
         text: 'You brought it back. The printer’s already cycling — I can smell bread from here, and I have never smelled bread in my life. Whatever it cost you out there — this bunker eats because of you.',
-        options: [{ text: 'Worth it.', to: null }],
+        options: [
+          { text: 'Worth it.', to: 'handoff' },
+          { text: 'There’s something out there you need to hear about.', to: 'handoff' },
+        ],
+      },
+      // The pivot into the second act. Without it the game could go quiet the
+      // moment the printer was fixed: the CTI thread only ever started from
+      // five optional lines scattered across four settlements, so a player who
+      // had walked past all of them finished the matrix and was left with no
+      // open quest, no marker and nothing telling them where to go next.
+      handoff: {
+        text: 'Say it. …Variants. On the road, in numbers, and organised. I have read every surplus manifest this hole came with and there is nothing in them that makes a thing like that by accident. Somebody is making them, somewhere, on purpose, and they are not slowing down. I cannot send anyone else — there is nobody else. Find out where.',
+        options: [
+          { text: 'I’ll find out where.', to: null, act: ['quest:start:vats', 'xp:200'] },
+          { text: 'Ask in the settlements first?', to: 'handoff_where' },
+        ],
+      },
+      handoff_where: {
+        text: 'Start with the traders. Dust Hollow sees the road east, the Nexus sees everything that moves, and the Sepulcher lot have been living next to whatever it is for longer than either. Somebody has seen where they come from.',
+        options: [{ text: 'Then that’s where I start.', to: null, act: ['quest:start:vats', 'xp:200'] }],
       },
     },
     entry(ctx) {
@@ -64949,7 +64968,17 @@ class UI {
 
     // Objective ticker
     const q = g.activeQuest();
-    const line = q ? `${QUESTS[q.id].name} — ${QUESTS[q.id].stages[q.stage] || ''}` : '';
+    let line = q ? `${QUESTS[q.id].name} — ${QUESTS[q.id].stages[q.stage] || ''}` : '';
+    if (!line) {
+      // Nothing open. Rather than an empty bar, name the nearest person still
+      // holding work and where they are standing.
+      const lead = g.openLead?.();
+      if (lead) {
+        const who = (__M.NPCS[lead.npc] || {}).name || 'someone';
+        const where = (__M.LOCATIONS[lead.loc] || {}).name || lead.loc;
+        line = `No open objective — ${who} has work, in ${where}`;
+      }
+    }
     if (line !== this._objLine) { this._objLine = line; this.objective.textContent = line; }
 
     if (this.vignetteT > 0) {
@@ -69417,6 +69446,51 @@ class Game {
     return id ? this.quests[id] : null;
   }
 
+  // Who is still holding a job the player has not taken. Built once from the
+  // same dialogue scan the waypoints use, so a new quest-giver is covered the
+  // day the dialogue is written.
+  questGivers() {
+    if (this._givers) return this._givers;
+    const idx = this.worldIndex();
+    const map = {};
+    for (const nid of Object.keys(NPCS)) {
+      const src = idx.npcSrc[nid] || '';
+      const offers = [];
+      for (const qid of Object.keys(QUESTS)) if (src.includes(`quest:start:${qid}`)) offers.push(qid);
+      if (offers.length && idx.npcLoc[nid]) map[nid] = { loc: idx.npcLoc[nid], offers };
+    }
+    this._givers = map;
+    return map;
+  }
+
+  // With every quest closed, the marker points at the nearest person still
+  // holding one. Finishing the Nutri-Print Matrix used to end with the compass
+  // going dark and the objective line going blank — the second act only ever
+  // began from optional dialogue in four different settlements, so a player who
+  // had not tripped over any of it was simply left standing there.
+  openLead() {
+    const here = this.encounterId ? (this.travelDest || this.locationId) : this.locationId;
+    let best = null, bestScore = Infinity;
+    for (const [npc, g] of Object.entries(this.questGivers())) {
+      const fresh = g.offers.filter((qid) => !this.quests[qid]);
+      if (!fresh.length) continue;
+      // Main-line work first, then whoever is closest in map hops.
+      const main = fresh.some((qid) => QUESTS[qid] && QUESTS[qid].main) ? 0 : 100;
+      const hops = g.loc === here ? 0 : (this.hopCount(here, g.loc) ?? 50);
+      const score = main + hops;
+      if (score < bestScore) { bestScore = score; best = { npc, loc: g.loc, offers: fresh }; }
+    }
+    return best;
+  }
+
+  // A synthetic step, so the compass, the minimap, the map pin and the
+  // objective line all keep working with no quest open at all.
+  leadStep() {
+    const lead = this.openLead();
+    if (!lead) return null;
+    return { quest: null, lead: true, npc: lead.npc, loc: lead.loc };
+  }
+
   // How many of a hunt stage's kills are still owed.
   questKillsLeft(qid) {
     const def = QUESTS[qid];
@@ -69427,7 +69501,7 @@ class Game {
 
   trackedStep() {
     const id = this.effectiveTracked();
-    if (!id || !this.quests[id] || this.quests[id].done) return null;
+    if (!id || !this.quests[id] || this.quests[id].done) return this.leadStep();
     const row = this.questWays()[id];
     if (!row || !row.length) return null;
     let i = Math.min(this.quests[id].stage, row.length - 1);
@@ -69612,7 +69686,10 @@ class Game {
     //    pointed straight at instead of being routed around.
     if (st.npc) {
       const a = this.actors.find((x) => x.isNpc && x.npcId === st.npc && !x.dead);
-      if (a) return at(a.pos.x, a.pos.z, (NPCS[st.npc] && NPCS[st.npc].name) || null);
+      if (a) {
+        const who = (NPCS[st.npc] && NPCS[st.npc].name) || null;
+        return at(a.pos.x, a.pos.z, st.lead && who ? `${who} — has work for you` : who);
+      }
     }
     if (st.term) {
       const it = (this.interactables || []).find((i) => i.kind === 'terminal' && i.onUse === st.term);
