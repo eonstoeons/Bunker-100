@@ -492,6 +492,8 @@ kbd {
 .compass .objblip { position: absolute; bottom: -2px; width: 15px; height: 15px; background: #FFD24A; clip-path: polygon(50% 0%, 100% 55%, 70% 55%, 70% 100%, 30% 100%, 30% 55%, 0% 55%); transform: translateX(-50%); opacity: 0; transition: opacity .2s; filter: drop-shadow(0 0 4px rgba(255,210,74,.85)); }
 .minimap { position: absolute; top: 14px; right: 16px; width: 132px; height: 132px; border-radius: 50%; border: 1px solid #3A2E1F; background: rgba(8,7,5,.55); box-shadow: 0 0 14px rgba(0,0,0,.55); pointer-events: none; }
 .compass .objblip[data-on="1"] { opacity: 1; }
+.compass .objlabel { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: .3rem; white-space: nowrap; font-size: .6rem; letter-spacing: .1em; text-transform: uppercase; color: #FFD24A; text-shadow: 0 0 4px rgba(0,0,0,.9); opacity: 0; transition: opacity .2s; }
+.compass .objlabel[data-on="1"] { opacity: .9; }
 .map-coords { margin-top: .4rem; font-size: .62rem; letter-spacing: .08em; color: var(--slate); }
 .routes { margin-bottom: 1rem; }
 .routes h4 { font-family: var(--display); text-transform: uppercase; letter-spacing: .14em; font-size: .68rem; color: var(--sodium); margin: 0 0 .4rem; }
@@ -59576,19 +59578,10 @@ const MAP_NODES = Object.freeze({
   longbar:    { x: 34, y: 82, label: 'Longbar' },
 });
 
-// Destination per quest stage, driving the compass chevron and map route.
-// Quests absent from this table simply show no waypoint.
-__M.QUEST_WAYS = {
-  aquifer: ['nexus', 'sepulcher', 'sepulcher', 'vault100', null],
-  vats: ['sanctum', 'sanctum', 'arsenal', 'arsenal', null],
-  scorpions: ['wasteland', 'dusthollow'],
-  medicine: ['dusthollow', 'dusthollow'],
-  pitfight: ['scrapgate', 'scrapgate'],
-  talons: ['scrapgate', 'scrapgate'],
-  caravan: ['nexus', 'nexus'],
-  ironvow: ['ironhold', 'ironhold', 'ironhold'],
-  withered: ['sepulcher', 'sepulcher', 'sepulcher'],
-};
+// Quest destinations live with the waypoint resolver in main.js
+// (Game#waypointTable), where they can name the exact terminal, container or
+// creature a stage wants rather than only the settlement it sits in. The
+// half-filled table that used to live here was never read by anything.
 
 const MAP_EDGES = Object.freeze([
   ['vault100', 'wasteland'], ['wasteland', 'dusthollow'], ['wasteland', 'scrapgate'],
@@ -64479,6 +64472,10 @@ class UI {
     this.compassBlips = el('div', 'blips');
     this.compass.appendChild(this.compassBlips);
     this.objBlip = el('i', 'objblip');
+    // What the chevron is pointing at. An arrow with no label tells you a
+    // direction; with one it tells you the plan.
+    this.objLabel = el('div', 'objlabel');
+    this.compass.appendChild(this.objLabel);
     this.compass.appendChild(this.objBlip);
     top.appendChild(this.compass);
     this.minimap = document.createElement('canvas');
@@ -64592,9 +64589,35 @@ class UI {
       if (qa) {
         let rel = qa.bearing - deg;
         while (rel > 180) rel -= 360; while (rel < -180) rel += 360;
-        this.objBlip.dataset.on = Math.abs(rel) <= 62 ? '1' : '0';
-        this.objBlip.style.left = (50 + Math.max(-60, Math.min(60, rel)) * 0.83) + '%';
-      } else this.objBlip.dataset.on = '0';
+        // The chevron never leaves the strip. Turn away from the objective and
+        // it parks against the edge it went out of, dimmed and tipped toward
+        // it, so "which way do I turn" is answerable without opening the map.
+        const off = Math.abs(rel) > 62;
+        const clamped = Math.max(-60, Math.min(60, rel));
+        this.objBlip.dataset.on = '1';
+        this.objBlip.dataset.edge = off ? (rel > 0 ? 'r' : 'l') : '';
+        this.objBlip.style.left = `${50 + clamped * 0.83}%`;
+        this.objBlip.style.opacity = off ? '0.5' : '1';
+        this.objBlip.style.transform = off
+          ? `translateX(-50%) rotate(${rel > 0 ? 62 : -62}deg)`
+          : 'translateX(-50%)';
+        if (this.objLabel) {
+          // Metres are only meaningful for something in this map. A map leg
+          // gets its instruction instead of a distance that would be a lie.
+          const far = qa.far || qa.dist == null;
+          const txt = qa.label ? `${qa.label}${far ? '' : ` · ${Math.round(qa.dist)}m`}` : '';
+          if (this.objLabel.textContent !== txt) this.objLabel.textContent = txt;
+          this.objLabel.dataset.on = txt ? '1' : '0';
+        }
+      } else {
+        // Clear the inline opacity too, or the chevron the stylesheet just
+        // switched off stays painted at whatever the last frame set.
+        this.objBlip.dataset.on = '0';
+        this.objBlip.dataset.edge = '';
+        this.objBlip.style.opacity = '';
+        this.objBlip.style.transform = 'translateX(-50%)';
+        if (this.objLabel) this.objLabel.dataset.on = '0';
+      }
     }
     this.drawMinimap(deg, qa);
     for (const t of this.compassTape.children) {
@@ -64666,11 +64689,13 @@ class UI {
         const [sx, sy] = project(qa.x, qa.z);
         this._miniArrow(c, sx, sy, Math.atan2(sx - R, R - sy));
       } else {
-        // Otherwise pin it to the rim in the right direction.
+        // Otherwise pin it to the rim in the right direction. A target in
+        // another location is drawn hollow — same heading, no promise that
+        // walking that way alone will get you there.
         let rel = qa.bearing - deg;
         while (rel > 180) rel -= 360; while (rel < -180) rel += 360;
         const rad = rel * Math.PI / 180, rim = R - 14;
-        this._miniArrow(c, R + Math.sin(rad) * rim, R - Math.cos(rad) * rim, rad);
+        this._miniArrow(c, R + Math.sin(rad) * rim, R - Math.cos(rad) * rim, rad, !!qa.map);
       }
     }
     c.restore();
@@ -64688,17 +64713,19 @@ class UI {
   }
 
   // Solid pointer: a filled arrowhead on a stem, rotated to face the target.
-  _miniArrow(c, x, y, rot) {
+  _miniArrow(c, x, y, rot, hollow = false) {
     c.save();
     c.translate(x, y);
     c.rotate(rot);
-    c.fillStyle = '#FFD24A';
+    c.strokeStyle = c.fillStyle = '#FFD24A';
     c.shadowColor = 'rgba(255,210,74,0.85)';
     c.shadowBlur = 6;
+    c.lineWidth = 1.6;
     c.beginPath();
     c.moveTo(0, -8); c.lineTo(6, 2); c.lineTo(2.4, 2); c.lineTo(2.4, 7);
     c.lineTo(-2.4, 7); c.lineTo(-2.4, 2); c.lineTo(-6, 2);
-    c.closePath(); c.fill();
+    c.closePath();
+    if (hollow) c.stroke(); else c.fill();
     c.restore();
   }
 
@@ -65488,7 +65515,7 @@ class UI {
       top.appendChild(el('b', null, TD(def.name)));
       top.appendChild(el('i', null, q.done ? 'COMPLETE' : def.main ? 'MAIN' : 'SIDE'));
       if (!q.done) {
-        const tr = el('button', 'quest-track', g.tracked === q.id ? '◈ TRACKED' : 'TRACK');
+        const tr = el('button', 'quest-track', g.effectiveTracked() === q.id ? '◈ TRACKED' : 'TRACK');
         tr.onclick = () => {
           g.tracked = g.tracked === q.id ? null : q.id;
           audio.play('ui_accept', { bus: 'ui', volume: 0.25 });
@@ -65522,11 +65549,11 @@ class UI {
     const mk = (tag, attrs) => { const n = document.createElementNS(ns, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); return n; };
     for (const [a, b] of MAP_EDGES) {
       const A = MAP_NODES[a], B = MAP_NODES[b];
-      if (!g.discovered.has(a) || !g.discovered.has(b)) continue;
+      if (!g.known(a) || !g.known(b)) continue;
       svg.appendChild(mk('line', { x1: A.x, y1: A.y, x2: B.x, y2: B.y, stroke: 'rgba(232,220,196,0.22)', 'stroke-width': 0.5, 'stroke-dasharray': '2 1.6' }));
     }
     for (const [id, n] of Object.entries(MAP_NODES)) {
-      const known = g.discovered.has(id);
+      const known = g.known(id);
       const here = g.locationId === id;
       const grp = mk('g', { class: `node${known ? '' : ' unknown'}${here ? ' here' : ''}` });
       grp.appendChild(mk('circle', { cx: n.x, cy: n.y, r: here ? 2.6 : 1.8, fill: here ? '#FFB33A' : known ? '#4FA88B' : 'rgba(107,98,85,0.5)' }));
@@ -65557,7 +65584,17 @@ class UI {
     // when the player most needs to be shown where to go.
     if (tgtId && MAP_NODES[tgtId]) {
       const T2 = MAP_NODES[tgtId], A0 = MAP_NODES[g.locationId];
-      if (A0) svg.appendChild(mk('line', { x1: A0.x, y1: A0.y, x2: T2.x, y2: T2.y, stroke: 'rgba(255,210,74,0.55)', 'stroke-width': 0.5, 'stroke-dasharray': '1 1.2' }));
+      // Trace the route the player will actually walk, leg by leg, rather
+      // than a straight line that crosses country there is no road through.
+      const path = g.routePath(g.locationId, tgtId);
+      if (path.length > 1) {
+        for (let i = 0; i < path.length - 1; i += 1) {
+          const P1 = MAP_NODES[path[i]], P2 = MAP_NODES[path[i + 1]];
+          svg.appendChild(mk('line', { x1: P1.x, y1: P1.y, x2: P2.x, y2: P2.y, stroke: 'rgba(255,210,74,0.55)', 'stroke-width': 0.6, 'stroke-dasharray': '1 1.2' }));
+        }
+      } else if (A0) {
+        svg.appendChild(mk('line', { x1: A0.x, y1: A0.y, x2: T2.x, y2: T2.y, stroke: 'rgba(255,210,74,0.55)', 'stroke-width': 0.5, 'stroke-dasharray': '1 1.2' }));
+      }
       svg.appendChild(mk('circle', { cx: T2.x, cy: T2.y, r: 5.2, fill: 'none', stroke: '#FFD24A', 'stroke-width': 0.7, 'stroke-dasharray': '1.4 1' }));
       svg.appendChild(mk('circle', { cx: T2.x, cy: T2.y, r: 2.4, fill: '#FFD24A' }));
       // A dropped pin above the node so the objective is unmistakable even
@@ -65592,7 +65629,7 @@ class UI {
       const links = MAP_EDGES
         .filter(([a2, b2]) => a2 === g.locationId || b2 === g.locationId)
         .map(([a2, b2]) => (a2 === g.locationId ? b2 : a2))
-        .filter((id2) => g.discovered.has(id2) && MAP_NODES[id2]);
+        .filter((id2) => g.known(id2) && MAP_NODES[id2]);
       const box = el('div', 'routes');
       box.appendChild(el('h4', null, 'Roads from here'));
       if (!links.length) box.appendChild(el('p', 'empty', 'No known road leaves this place.'));
@@ -67141,7 +67178,13 @@ class Game {
     this.checkEndings();
   }
 
+  // The quest the HUD talks about. It follows whatever the waypoint follows:
+  // when the player tracks a side quest, the objective line has to change with
+  // the chevron, or the text describes one errand while the arrow points at
+  // another.
   activeQuest() {
+    const tracked = this.trackedQuest();
+    if (tracked) return tracked;
     const list = Object.values(this.quests).filter((q) => !q.done);
     return list.find((q) => QUESTS[q.id].main) || list[0] || null;
   }
@@ -67827,6 +67870,7 @@ class Game {
       pos: { x: this.player.pos.x, z: this.player.pos.z, angle: this.player.yaw },
       quests: this.quests,
       discovered: [...this.discovered],
+      routeKnown: [...this.routeKnownSet()],
       seenEncounters: [...this.seenEncounters],
       travelDest: this.travelDest,
       merchants: this.merchants,
@@ -67883,6 +67927,7 @@ class Game {
     this.char = Character.fromJSON(data.char);
     this.quests = data.quests || {};
     this.discovered = new Set(data.discovered || ['vault100']);
+    this.routeKnown = new Set(data.routeKnown || []);
     this.seenEncounters = new Set(data.seenEncounters || []);
     this.travelDest = data.travelDest || null;
     this.merchants = data.merchants || {};
@@ -68169,86 +68214,292 @@ class Game {
     }
   }
 
-  // Where each stage of each quest sends you, derived rather than authored:
-  // an NPC whose dialogue can advance a quest to stage N+1 is, by definition,
-  // who you need to reach at stage N. This covers every quest in the game and
-  // can't drift out of sync with the dialogue the way a hand-kept table does.
-  questWays() {
-    if (this._ways) return this._ways;
-    const LOC = __M.LOCATIONS || {};
+  // =========================================================================
+  // Waypoints
+  // =========================================================================
+  // One resolver stands behind the compass chevron, the minimap pointer, the
+  // world-map pin and the objective line, so those four can never disagree
+  // with each other. Two rules it must never break:
+  //
+  //   1. While a quest is open the player always has a next thing to walk
+  //      toward — in every location, inside interiors, and on the road in the
+  //      middle of a travel encounter. The marker does not blink out.
+  //   2. Whatever it points at is actually reachable from where the player is
+  //      standing right now, even when that means "this leg is a map journey".
 
-    // Which location each NPC stands in. Placement lives inside the location
-    // builder functions rather than in data, so read it out of their source.
-    const npcLoc = {};
-    for (const lid of Object.keys(LOC)) {
-      const bs = String(LOC[lid].build || '');
+  // Where each stage of each quest sends you. Authored, because scanning
+  // dialogue alone cannot tell a fetch from a hand-in: the advancing line
+  // often lives with the quest giver while the objective is a locker on the
+  // far side of the map. Each entry is one of:
+  //
+  //   { loc, npc }        talk to somebody standing in a place
+  //   { loc, term }       use a terminal, matched on its onUse id
+  //   { loc, cont }       open a container, matched on its label
+  //   { loc, at, name }   walk to a spot in a location that has no marker
+  //   { creature, loc? }  hunt — loc optional, else the nearest place it lives
+  //   { road: true, … }   the objective is a roadside find, out on the map
+  //   null                a closing stage with nothing left to do
+  //
+  // Fields combine: a hunt stage may also carry the npc to report back to,
+  // used once the kill count is met. Any quest missing from this table falls
+  // through to deriveStep(), so new content still gets a marker.
+  waypointTable() {
+    if (this._wpt) return this._wpt;
+    this._wpt = {
+      aquifer: [
+        { loc: 'vault100', npc: 'overseer' },
+        { loc: 'nexus', npc: 'water_baron_calder' },
+        { loc: 'sepulcher', cont: 'Sealed Parts Locker' },
+        { loc: 'vault100', term: 'purifier' },
+        null,
+      ],
+      vats: [
+        { loc: 'dusthollow', npc: 'trader_pell' },
+        { loc: 'sanctum', npc: 'acolyte_sim' },
+        { loc: 'arsenal', term: 'arsenal_security' },
+        { loc: 'arsenal', term: 'vat_control' },
+        null,
+      ],
+      scorpions: [
+        { creature: 'ironclaw', npc: 'elder_sella', loc: 'wasteland' },
+        { loc: 'dusthollow', npc: 'elder_sella' },
+      ],
+      medicine: [
+        { loc: 'dusthollow', npc: 'healer_orin' },
+        { loc: 'dusthollow', npc: 'healer_orin' },
+      ],
+      pitfight: [
+        { loc: 'scrapgate', cont: 'Pit Fight Registration' },
+        { loc: 'scrapgate', npc: 'pitboss_gorr' },
+      ],
+      talons: [
+        { loc: 'scrapgate', npc: 'talon_riss' },
+        { loc: 'scrapgate', npc: 'sheriff_kade' },
+      ],
+      caravan: [
+        { loc: 'dusthollow', cont: 'Village Stores' },
+        { loc: 'nexus', npc: 'caravan_mott' },
+      ],
+      ironvow: [
+        { loc: 'nexus', npc: 'ironvow_scribe' },
+        { loc: 'arsenal', at: { x: 17, z: -26 }, name: 'Arsenal Armoury' },
+        { loc: 'nexus', npc: 'ironvow_scribe' },
+      ],
+      withered: [
+        { loc: 'sepulcher', npc: 'withered_set' },
+        { loc: 'sepulcher', term: 'pump_control' },
+        { loc: 'sepulcher', npc: 'withered_set' },
+      ],
+      cistern_pumps: [
+        { loc: 'cistern', npc: 'scav_tull' },
+        { loc: 'cistern', term: 'cistern_regulator' },
+        null,
+      ],
+      cistern_apex: [
+        { loc: 'cistern', npc: 'scav_pike' },
+        { creature: 'ripperclaw', loc: 'cistern', npc: 'scav_pike' },
+      ],
+      vow_induction: [
+        { loc: 'ironhold', npc: 'vow_elder_mott' },
+        { loc: 'ironhold', npc: 'vow_elder_mott' },
+        null,
+      ],
+      vow_survey: [
+        { loc: 'ironhold', npc: 'vow_archivist' },
+        { loc: 'kilnflats', term: 'kiln_control' },
+        null,
+      ],
+      vow_armour: [
+        { loc: 'ironhold', npc: 'vow_quartermaster' },
+        { loc: 'ironhold', npc: 'vow_quartermaster' },
+        null,
+      ],
+      hermit: [
+        { loc: 'kilnflats', npc: 'kiln_hermit' },
+        { loc: 'kilnflats', npc: 'kiln_hermit' },
+      ],
+      longbar_ration: [
+        { loc: 'longbar', npc: 'longbar_speaker' },
+        { loc: 'longbar', cont: 'Yard Stores' },
+        { loc: 'longbar', npc: 'longbar_speaker' },
+      ],
+      longbar_streets: [
+        { loc: 'longbar', npc: 'longbar_scout' },
+        { creature: 'ashwolfvet', loc: 'longbar', npc: 'longbar_scout' },
+      ],
+      longbar_missing: [
+        { loc: 'longbar', npc: 'longbar_medic' },
+        { loc: 'longbar', at: { x: 59, z: -17 }, name: 'Longbar East Blocks' },
+        { loc: 'longbar', npc: 'longbar_medic' },
+      ],
+      vault_ledger: [
+        { loc: 'vault100', npc: 'techmara' },
+        { loc: 'vault100', npc: 'occupant_kade' },
+        { loc: 'vault100', npc: 'techmara' },
+      ],
+      cut_channel: [
+        { loc: 'dusthollow', npc: 'farmer_yew' },
+        { loc: 'nexus', npc: 'water_baron_calder' },
+        { loc: 'dusthollow', npc: 'farmer_yew' },
+      ],
+      bench_stock: [
+        { loc: 'scrapgate', npc: 'gunsmith_vey' },
+        { road: true, cont: 'Stencilled Crate' },
+        { loc: 'scrapgate', npc: 'gunsmith_vey' },
+      ],
+      debt_pipe: [
+        { loc: 'scrapgate', npc: 'barkeep_dolan' },
+        { loc: 'scrapgate', npc: 'barkeep_dolan' },
+      ],
+      cell_rot: [
+        { loc: 'nexus', npc: 'armorer_such' },
+        { loc: 'nexus', npc: 'caravan_mott' },
+        { loc: 'nexus', npc: 'armorer_such' },
+      ],
+      the_names: [
+        { loc: 'sepulcher', npc: 'withered_mayor' },
+        { loc: 'sepulcher', cont: 'Municipal Cabinet' },
+        { loc: 'sepulcher', npc: 'withered_mayor' },
+      ],
+      the_unasked: [
+        { loc: 'sanctum', npc: 'acolyte_sim' },
+        { loc: 'sanctum', npc: 'acolyte_sim' },
+      ],
+      bounty_apex: [
+        { loc: 'scrapgate', npc: 'sheriff_kade' },
+        { creature: 'ripperclaw', npc: 'sheriff_kade' },
+      ],
+      hauler_run: [
+        { loc: 'nexus', npc: 'caravan_mott' },
+        { road: true, term: 'hauler_manifest' },
+        { loc: 'nexus', npc: 'caravan_mott' },
+      ],
+      relay_signal: [
+        { loc: 'ironhold', npc: 'vow_archivist' },
+        { road: true, term: 'relay_control' },
+        { loc: 'ironhold', npc: 'vow_archivist' },
+      ],
+      road_help: [
+        { road: true, npc: 'road_wounded' },
+        { road: true, npc: 'road_wounded' },
+      ],
+      water_war: [
+        { loc: 'longbar', npc: 'longbar_speaker' },
+        { loc: 'nexus', npc: 'water_baron_calder' },
+        null,
+      ],
+    };
+    return this._wpt;
+  }
+
+  // Static index of the world, read out of the location and encounter
+  // builders' source rather than by running them — building all twelve maps
+  // to find out where one NPC stands would cost seconds. Where an id appears
+  // in a builder is where that thing lives.
+  worldIndex() {
+    if (this._widx) return this._widx;
+    const idx = {
+      npcLoc: {}, termLoc: {}, creLoc: {},
+      npcEnc: {}, termEnc: {}, contEnc: {},
+      npcSrc: {}, termSrc: {},
+    };
+    const quoted = (id) => new RegExp("['\"`]" + id + "['\"`]");
+    const read = (src, place, isEnc) => {
       for (const nid of Object.keys(NPCS)) {
-        if (!npcLoc[nid] && new RegExp("['\"`]" + nid + "['\"`]").test(bs)) npcLoc[nid] = lid;
+        if (idx.npcLoc[nid] || idx.npcEnc[nid]) continue;
+        if (quoted(nid).test(src)) (isEnc ? idx.npcEnc : idx.npcLoc)[nid] = place;
       }
-    }
+      for (const tid of Object.keys(TERMINALS)) {
+        if (idx.termLoc[tid] || idx.termEnc[tid]) continue;
+        if (new RegExp("onUse:\\s*['\"`]" + tid + "['\"`]").test(src)) (isEnc ? idx.termEnc : idx.termLoc)[tid] = place;
+      }
+      if (isEnc) return;
+      const re = /creature:\s*['"`]([a-z0-9_]+)['"`]/gi;
+      let m;
+      while ((m = re.exec(src))) {
+        const list = idx.creLoc[m[1]] || (idx.creLoc[m[1]] = []);
+        if (!list.includes(place)) list.push(place);
+      }
+    };
+    for (const lid of Object.keys(LOCATIONS)) read(String(LOCATIONS[lid].build || ''), lid, false);
+    for (const eid of Object.keys(ENCOUNTERS)) read(String(ENCOUNTERS[eid].build || ''), eid, true);
 
-    // Flatten each NPC's dialogue — strings and function bodies alike — so
-    // quest actions buried in conditional branches are still visible.
-    const npcSrc = {};
-    for (const nid of Object.keys(NPCS)) {
+    // Flattened dialogue — strings and function bodies alike — so quest
+    // actions buried in conditional branches are still visible to the
+    // fallback deriver.
+    const flat = (v) => {
       let acc = '';
       const seen = new Set();
-      const walk = (v) => {
-        if (v == null || acc.length > 300000) return;
-        if (typeof v === 'string') { acc += v + '\n'; return; }
-        if (typeof v === 'function') { try { acc += v.toString(); } catch { /* native */ } return; }
-        if (typeof v !== 'object' || seen.has(v)) return;
-        seen.add(v);
-        for (const k of Object.keys(v)) walk(v[k]);
+      const walk = (n) => {
+        if (n == null || acc.length > 300000) return;
+        if (typeof n === 'string') { acc += n + '\n'; return; }
+        if (typeof n === 'function') { try { acc += n.toString(); } catch { /* native */ } return; }
+        if (typeof n !== 'object' || seen.has(n)) return;
+        seen.add(n);
+        for (const k of Object.keys(n)) walk(n[k]);
       };
-      walk(NPCS[nid]);
-      npcSrc[nid] = acc;
+      walk(v);
+      return acc;
+    };
+    for (const nid of Object.keys(NPCS)) idx.npcSrc[nid] = flat(NPCS[nid]);
+    for (const tid of Object.keys(TERMINALS)) idx.termSrc[tid] = flat(TERMINALS[tid]);
+
+    this._widx = idx;
+    return idx;
+  }
+
+  // Fallback for any quest the table above does not cover: whoever or
+  // whatever can actually advance this stage is, by definition, the thing to
+  // reach. Where several can, the stage's own log entry breaks the tie — the
+  // place it names most often wins, earliest mention settling a draw.
+  deriveStep(qid, s) {
+    const idx = this.worldIndex();
+    const stages = QUESTS[qid].stages || [];
+    const key = (s >= stages.length - 1)
+      ? ('quest:done:' + qid)
+      : ('quest:stage:' + qid + ':' + (s + 1));
+    const cands = [];
+    for (const nid of Object.keys(NPCS)) {
+      if (!idx.npcSrc[nid].includes(key)) continue;
+      cands.push(idx.npcLoc[nid] ? { npc: nid, loc: idx.npcLoc[nid] } : { npc: nid, road: true });
     }
+    for (const tid of Object.keys(TERMINALS)) {
+      if (!idx.termSrc[tid].includes(key)) continue;
+      cands.push(idx.termLoc[tid] ? { term: tid, loc: idx.termLoc[tid] } : { term: tid, road: true });
+    }
+    if (!cands.length) {
+      const giver = Object.keys(NPCS).find((n) => idx.npcSrc[n].includes('quest:start:' + qid));
+      if (!giver) return null;
+      return idx.npcLoc[giver] ? { npc: giver, loc: idx.npcLoc[giver] } : { npc: giver, road: true };
+    }
+    const text = stages[s] || '';
+    const score = (lid) => {
+      const def = lid && LOCATIONS[lid];
+      const name = def && def.name ? def.name.replace(/^The /, '') : '';
+      if (!name) return 0;
+      let n = 0, i = text.indexOf(name);
+      const first = i;
+      while (i >= 0) { n += 1; i = text.indexOf(name, i + name.length); }
+      return n ? n * 1000 - first : 0;
+    };
+    let best = cands[0], bestScore = score(best.loc);
+    for (const c of cands) {
+      const sc = score(c.loc);
+      if (sc > bestScore) { best = c; bestScore = sc; }
+    }
+    return best;
+  }
 
-    // Reverse index — NPCs actually standing in each location — so once a
-    // destination is known, a live contact there can be picked for the
-    // in-location arrow.
-    const locNpcs = {};
-    for (const [nid, lid] of Object.entries(npcLoc)) (locNpcs[lid] = locNpcs[lid] || []).push(nid);
-
-    // Location names, longest first, so a shorter name can't false-match
-    // inside a longer one.
-    const locNames = Object.entries(LOC)
-      .filter(([, def]) => def && def.name)
-      .map(([lid, def]) => ({ lid, name: def.name.replace(/^The /, '') }))
-      .sort((a, b) => b.name.length - a.name.length);
-
-    const ids = Object.keys(NPCS);
+  questWays() {
+    if (this._ways) return this._ways;
+    const table = this.waypointTable();
     const ways = {};
     for (const qid of Object.keys(QUESTS)) {
       const stages = QUESTS[qid].stages || [];
-      const giver = ids.find((n) => npcSrc[n].includes('quest:start:' + qid));
-      const mentions = ids.find((n) => npcSrc[n].includes(qid));
+      const authored = table[qid];
       const row = [];
       for (let s = 0; s < stages.length; s += 1) {
-        // The stage's own log entry is what the player actually reads, and
-        // unlike scanning dialogue triggers it isn't confused by quests
-        // where several different NPCs can each advance the same stage —
-        // that ambiguity previously made every later stage collapse back
-        // onto whichever NPC's source happened to be found first. Take the
-        // LAST location named in the text: these are written "you hear
-        // about X, so go to Y", and Y is the actionable destination.
-        const text = stages[s] || '';
-        let loc = null;
-        for (const { lid, name } of locNames) if (text.includes(name)) loc = lid;
-        let who = null;
-        if (loc) {
-          const there = locNpcs[loc] || [];
-          who = there.find((n) => npcSrc[n].includes('quest:stage:' + qid + ':' + (s + 1))) || there[0] || null;
-        } else {
-          // No place named in the text — fall back to the dialogue-trigger
-          // search, which is reliable when only one NPC can advance it.
-          who = ids.find((n) => npcSrc[n].includes('quest:stage:' + qid + ':' + (s + 1)));
-          if (!who && s === stages.length - 1) who = giver;
-          if (!who) who = mentions || giver;
-          loc = who ? npcLoc[who] || null : null;
-        }
-        row.push((loc || who) ? { npc: who, loc } : null);
+        row.push(authored ? (authored[s] || null) : this.deriveStep(qid, s));
       }
       ways[qid] = row;
     }
@@ -68256,74 +68507,296 @@ class Game {
     return ways;
   }
 
+  // Which quest the waypoint follows. Explicit tracking wins, but with
+  // nothing tracked the player still gets guidance: the active main quest,
+  // or failing that whatever else is open. Without this the marker only
+  // ever appeared for players who had found the TRACK button in the journal.
+  effectiveTracked() {
+    const q = this.quests || {};
+    if (this.tracked && q[this.tracked] && !q[this.tracked].done) return this.tracked;
+    const active = Object.keys(q).filter((id) => q[id] && !q[id].done);
+    if (!active.length) return null;
+    return active.find((id) => QUESTS[id] && QUESTS[id].main) || active[0];
+  }
+
+  trackedQuest() {
+    const id = this.effectiveTracked();
+    return id ? this.quests[id] : null;
+  }
+
+  // How many of a hunt stage's kills are still owed.
+  questKillsLeft(qid) {
+    const def = QUESTS[qid];
+    if (!def || !def.target) return 0;
+    const q = this.quests[qid];
+    return Math.max(0, (def.target.count || 1) - ((q && q.kills) || 0));
+  }
+
   trackedStep() {
-    if (!this.tracked || !this.quests[this.tracked] || this.quests[this.tracked].done) return null;
-    const row = this.questWays()[this.tracked];
+    const id = this.effectiveTracked();
+    if (!id || !this.quests[id] || this.quests[id].done) return null;
+    const row = this.questWays()[id];
     if (!row || !row.length) return null;
-    return row[Math.min(this.quests[this.tracked].stage, row.length - 1)] || null;
+    let i = Math.min(this.quests[id].stage, row.length - 1);
+    // Closing stages carry no destination. Walk back to the last one that did
+    // rather than letting the marker blink out on the final beat.
+    while (i >= 0 && !row[i]) i -= 1;
+    if (i < 0) return null;
+    return Object.assign({ quest: id }, row[i]);
+  }
+
+  // Which location a step resolves to, for the world map pin and the route.
+  stepLoc(st) {
+    if (!st) return null;
+    // A hunt is wherever the quarry is. If it also lives in this location the
+    // map pin belongs here, so the pin and the compass agree instead of the
+    // pin sending you elsewhere while the arrow points at something breathing
+    // twenty metres away.
+    if (st.creature && st.quest && this.questKillsLeft(st.quest) > 0) {
+      const here = this.encounterId ? null : this.locationId;
+      const lives = this.worldIndex().creLoc[st.creature] || [];
+      if (here && lives.includes(here)) return here;
+      return st.loc || this.nearestCreatureLoc(st.creature);
+    }
+    if (st.loc) return st.loc;
+    const idx = this.worldIndex();
+    if (st.term && idx.termLoc[st.term]) return idx.termLoc[st.term];
+    if (st.npc && idx.npcLoc[st.npc]) return idx.npcLoc[st.npc];
+    if (st.creature) return this.nearestCreatureLoc(st.creature);
+    return null;
   }
 
   trackedTarget() {
-    const st = this.trackedStep();
-    return st ? st.loc : null;
+    return this.stepLoc(this.trackedStep());
   }
 
-  // The heading the pointer should show right now: a live world bearing when
-  // the target is in this location, otherwise a bearing toward the location
-  // itself, taken off the world map graph.
-  //
-  // Bearings are compass degrees — 0 is north, which in world space is -Z.
-  // Nearest way out of the current location: an exit trigger or a door.
-  // These are the only points from which travel is possible, so when the
-  // objective is elsewhere this is genuinely the next place to walk to.
-  nearestExit() {
-    if (!this.player) return null;
-    let best = null, bestD = Infinity;
-    for (const it of this.interactables || []) {
-      if (it.kind !== 'exit' && it.kind !== 'door') continue;
-      if (!it.to) continue;
-      const d = Math.hypot(it.x - this.player.pos.x, it.z - this.player.pos.z);
-      if (d < bestD) { bestD = d; best = it; }
+  // Closest place — in map hops, not metres — that a given creature lives.
+  nearestCreatureLoc(creature) {
+    const list = (this.worldIndex().creLoc[creature] || []).filter((l) => MAP_NODES[l]);
+    if (!list.length) return null;
+    const from = this.encounterId ? (this.travelDest || this.locationId) : this.locationId;
+    let best = list[0], bestH = Infinity;
+    for (const l of list) {
+      const h = l === from ? 0 : (this.hopCount(from, l) ?? 99);
+      if (h < bestH) { bestH = h; best = l; }
     }
-    return best ? { x: best.x, z: best.z, dist: bestD, label: best.label } : null;
+    return best;
   }
 
+  // -- map graph -----------------------------------------------------------
+  mapAdjacency() {
+    if (this._adj) return this._adj;
+    const adj = {};
+    for (const [a, b] of (__M.MAP_EDGES || [])) {
+      (adj[a] = adj[a] || []).push(b);
+      (adj[b] = adj[b] || []).push(a);
+    }
+    this._adj = adj;
+    return adj;
+  }
+
+  // Breadth-first shortest route between two map nodes, inclusive of both.
+  routePath(from, to) {
+    if (!from || !to || !MAP_NODES[from] || !MAP_NODES[to]) return [];
+    if (from === to) return [from];
+    const adj = this.mapAdjacency();
+    const prev = { [from]: null };
+    const queue = [from];
+    while (queue.length) {
+      const cur = queue.shift();
+      if (cur === to) break;
+      for (const nxt of adj[cur] || []) {
+        if (nxt in prev) continue;
+        prev[nxt] = cur;
+        queue.push(nxt);
+      }
+    }
+    if (!(to in prev)) return [];
+    const path = [];
+    for (let n = to; n != null; n = prev[n]) path.unshift(n);
+    return path;
+  }
+
+  // First hop along the map graph from one location toward another. The
+  // Sanctum has two doors — one to the Dust Sea, one to Papillon Arsenal —
+  // so simply taking the closest exit can march the player out of the wrong
+  // one. Going by the graph gives the door that starts the shortest route.
+  routeNextHop(from, to) {
+    const path = this.routePath(from, to);
+    return path.length > 1 ? path[1] : null;
+  }
+
+  // Map-graph distance in hops, or null when unreachable.
+  hopCount(from, to) {
+    if (!from || !to) return null;
+    if (from === to) return 0;
+    const path = this.routePath(from, to);
+    return path.length ? path.length - 1 : null;
+  }
+
+  // A place the quest points at is a place the player has been told about,
+  // so it goes on the map as a known road even before they have stood in it.
+  // Without this, four locations — the Cistern, Ironhold, Kiln Flats and
+  // Longbar — had doors out and no way in: the world map only offers travel
+  // to discovered nodes, and nothing discovered them.
+  routeKnownSet() {
+    if (!this.routeKnown) this.routeKnown = new Set();
+    return this.routeKnown;
+  }
+
+  known(id) {
+    return this.discovered.has(id) || this.routeKnownSet().has(id);
+  }
+
+  revealRoute(from, to) {
+    if (!to || !MAP_NODES[to]) return;
+    const known = this.routeKnownSet();
+    const path = this.routePath(from, to);
+    const nodes = path.length ? path : [to];
+    let added = null;
+    for (const id of nodes) {
+      if (this.discovered.has(id) || known.has(id)) continue;
+      known.add(id);
+      added = id;
+    }
+    if (added && this.ui) this.ui.notify(`Route noted: ${MAP_NODES[to].label}`, 'good');
+  }
+
+  // -- ways out ------------------------------------------------------------
+  // Score every door by how many map hops remain once you are through it, so
+  // the choice is "which way gets me closest" rather than "which is nearest".
+  // A physical shortcut that isn't a map edge — the Sanctum's catacomb
+  // passage into the Arsenal — scores 0 and wins outright.
+  exitToward(targetLoc) {
+    if (!this.player) return null;
+    const exits = (this.interactables || []).filter((it) => (it.kind === 'exit' || it.kind === 'door') && it.to);
+    if (!exits.length) return null;
+    const near = (it) => Math.hypot(it.x - this.player.pos.x, it.z - this.player.pos.z);
+    const out = (it) => (it ? { x: it.x, z: it.z, dist: near(it), label: it.label, to: it.to } : null);
+    if (!targetLoc) return out(exits.reduce((a, b) => (near(b) < near(a) ? b : a)));
+    let best = null, bestScore = Infinity, bestDist = Infinity;
+    for (const it of exits) {
+      const hops = it.to === targetLoc ? 0 : this.hopCount(it.to, targetLoc);
+      if (hops == null) continue;
+      const d = near(it);
+      if (hops < bestScore || (hops === bestScore && d < bestDist)) {
+        best = it; bestScore = hops; bestDist = d;
+      }
+    }
+    return out(best);
+  }
+
+  nearestExit() { return this.exitToward(null); }
+
+  // -- the pointer itself --------------------------------------------------
+  // Bearings are compass degrees: 0 is north, which in world space is -Z.
+  // Returns null only when there is genuinely nothing to do — no open quest,
+  // or no player yet. Every other path yields a heading.
   questArrow() {
     const st = this.trackedStep();
     if (!st || !this.player) return null;
-    if (st.loc && st.loc !== this.locationId) {
-      // Objective is in another location — steer to the exit, live, so the
-      // arrow updates every step instead of holding one fixed heading.
-      const ex = this.nearestExit();
-      if (!ex) return null;
-      const dx = ex.x - this.player.pos.x, dz = ex.z - this.player.pos.z;
-      return {
-        bearing: Math.atan2(dx, -dz) * 180 / Math.PI, far: false,
-        dist: ex.dist, x: ex.x, z: ex.z, exit: true,
-      };
-    }
+    const p = this.player.pos;
+    const bearingTo = (x, z) => Math.atan2(x - p.x, -(z - p.z)) * 180 / Math.PI;
+    const at = (x, z, label, extra) => Object.assign({
+      bearing: bearingTo(x, z), x, z,
+      dist: Math.hypot(x - p.x, z - p.z), far: false,
+      label: label || null,
+    }, extra || {});
+
+    // 1. Does this very map already hold the answer? Checked before any
+    //    routing, so a travel encounter that happens to contain the objective
+    //    — the lost hauler's manifest, the relay mast, the wounded scout — is
+    //    pointed straight at instead of being routed around.
     if (st.npc) {
       const a = this.actors.find((x) => x.isNpc && x.npcId === st.npc && !x.dead);
-      if (a) {
-        const dx = a.pos.x - this.player.pos.x, dz = a.pos.z - this.player.pos.z;
-        return {
-          bearing: Math.atan2(dx, -dz) * 180 / Math.PI, far: false,
-          dist: Math.hypot(dx, dz), x: a.pos.x, z: a.pos.z,
-        };
-      }
+      if (a) return at(a.pos.x, a.pos.z, (NPCS[st.npc] && NPCS[st.npc].name) || null);
     }
-    // Right location, but the contact isn't loaded (or is dead). Rather than
-    // dropping the marker entirely, steer to whatever the stage points at:
-    // any interactable that advances things, else the way out.
-    const ex = this.nearestExit();
-    if (ex) {
-      const dx = ex.x - this.player.pos.x, dz = ex.z - this.player.pos.z;
+    if (st.term) {
+      const it = (this.interactables || []).find((i) => i.kind === 'terminal' && i.onUse === st.term);
+      if (it) return at(it.x, it.z, it.label || 'Terminal');
+    }
+    if (st.cont) {
+      const want = String(st.cont).toLowerCase();
+      const it = (this.interactables || []).find((i) => String(i.label || '').toLowerCase() === want);
+      if (it) return at(it.x, it.z, it.label);
+    }
+    if (st.creature && this.questKillsLeft(st.quest) > 0) {
+      let best = null, bestD = Infinity;
+      for (const a of this.actors) {
+        if (a.dead || a.isNpc || a.defId !== st.creature) continue;
+        const d = Math.hypot(a.pos.x - p.x, a.pos.z - p.z);
+        if (d < bestD) { bestD = d; best = a; }
+      }
+      if (best) return at(best.pos.x, best.pos.z, (CREATURES[st.creature] && CREATURES[st.creature].name) || 'Target');
+    }
+    if (st.at && st.loc === this.locationId && !this.encounterId) {
+      return at(st.at.x, st.at.z, st.name || null);
+    }
+
+    // 2. Not here. Where is it, then?
+    const hunting = st.creature && this.questKillsLeft(st.quest) > 0;
+    let dest = hunting ? (st.loc || this.nearestCreatureLoc(st.creature)) : this.stepLoc(st);
+    if (st.road && !hunting) dest = null;
+
+    // 3. On the road, mid-encounter: the only way anywhere is onward, and the
+    //    encounter's own marker is the way onward.
+    const onward = (this.interactables || []).find((i) => i.kind === 'continue');
+    if (this.encounterId && onward) {
+      const to = (this.travelDest && MAP_NODES[this.travelDest] && MAP_NODES[this.travelDest].label) || 'the road';
+      if (dest) this.revealRoute(this.travelDest || this.locationId, dest);
+      return at(onward.x, onward.z, `Continue → ${to}`, { exit: true });
+    }
+
+    // 4. A roadside objective has no node to route to. Send the player out
+    //    onto the roads and say why, rather than dropping the marker.
+    if (!dest) {
+      if (onward) return at(onward.x, onward.z, 'Keep travelling — objective is on the road', { exit: true });
+      const ex = this.nearestExit();
+      if (ex) return at(ex.x, ex.z, `${ex.label} — objective is on the road`, { exit: true });
+      return { bearing: 0, far: true, road: true, label: 'Objective is out on the road' };
+    }
+
+    const from = this.encounterId ? (this.travelDest || this.locationId) : this.locationId;
+
+    // 5. Right place, but the thing itself is not loaded — dead, already
+    //    looted, or simply not spawned. Point at the heart of the location
+    //    instead of going dark.
+    if (dest === from && !this.encounterId) {
+      const label = (LOCATIONS[dest] && LOCATIONS[dest].name) || dest;
+      if (st.at) return at(st.at.x, st.at.z, st.name || label);
+      return at(0, 0, label, { soft: true });
+    }
+
+    // 6. Elsewhere. Take the first hop along the map graph and steer to the
+    //    door that starts it. Reveal the route while we are at it, so the
+    //    place the marker names can actually be travelled to.
+    this.revealRoute(from, dest);
+    const hop = this.routeNextHop(from, dest) || dest;
+    const destLabel = (MAP_NODES[dest] && MAP_NODES[dest].label) || dest;
+    const hopLabel = (MAP_NODES[hop] && MAP_NODES[hop].label) || hop;
+    const doors = (this.interactables || []).filter((i) => (i.kind === 'exit' || i.kind === 'door') && i.to === hop);
+    if (doors.length) {
+      const d = doors.reduce((a, b) => (Math.hypot(b.x - p.x, b.z - p.z) < Math.hypot(a.x - p.x, a.z - p.z) ? b : a));
+      return at(d.x, d.z, hop === dest ? `${d.label} → ${destLabel}` : `${d.label} → ${destLabel} (via ${hopLabel})`, { exit: true });
+    }
+
+    // 7. No door here serves that hop — this leg is a map journey. Hold a
+    //    true map bearing so the chevron still means something, and say what
+    //    to press. This is what used to send the player bouncing between two
+    //    towns forever, each one's only door pointing back at the other.
+    const A = MAP_NODES[from], B = MAP_NODES[hop];
+    if (A && B) {
       return {
-        bearing: Math.atan2(dx, -dz) * 180 / Math.PI, far: false,
-        dist: ex.dist, x: ex.x, z: ex.z, exit: true,
+        bearing: Math.atan2(B.x - A.x, -(B.y - A.y)) * 180 / Math.PI,
+        far: true, map: true, exit: true,
+        label: hop === dest ? `Open map [M] → ${destLabel}` : `Open map [M] → ${hopLabel} → ${destLabel}`,
       };
     }
-    return null;
+
+    // 8. Last resort: any way out at all beats no marker.
+    const ex = this.exitToward(dest) || this.nearestExit();
+    if (ex) return at(ex.x, ex.z, `${ex.label} → ${destLabel}`, { exit: true });
+    return { bearing: 0, far: true, label: destLabel };
   }
 
   updateEffects(dt) {
