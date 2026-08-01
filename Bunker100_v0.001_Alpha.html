@@ -54535,6 +54535,12 @@ class Character {
 
   spendRound(wid = this.equipped.primary, n = 1) {
     const w = WEAPONS[wid];
+    // Bottomless clip: the round is free and the magazine reads full, so the
+    // HUD tells the truth about a weapon that will never run dry.
+    if (__M.cheats && __M.cheats().infiniteAmmo) {
+      if (w?.mag) this.loadedAmmo[wid] = w.mag;
+      return true;
+    }
     if (!w?.mag) {
       if (w?.ammo) return this.remove(w.ammo, n);
       return true;
@@ -54630,6 +54636,9 @@ class Character {
   }
 
   hurt(amount, type = 'normal') {
+    // Infinite health swallows the rads and venom that ride along with a hit
+    // as well as the hit itself; a god who still dies of poisoning is not one.
+    if (__M.cheats && __M.cheats().godMode) return 0;
     const dealt = this.damageTaken(amount, type);
     this.hp = clamp(this.hp - dealt, 0, this.maxHp());
     if (type === 'rad') this.rads += Math.round(amount / 2);
@@ -54707,10 +54716,13 @@ class Character {
       if (keep.length !== this.effects.length) { this.effects = keep; this.dirty(); }
     }
     this._regenAcc = (this._regenAcc || 0) + dtSeconds;
+    const chr = (__M.cheats ? __M.cheats() : {});
     const step = 6 / (this.mods().mult.regen ?? 1);
     while (this._regenAcc >= step) {
       this._regenAcc -= step;
-      const dReg = (__M.diff ? __M.diff().regen : 1);
+      // Regeneration modifiers scale the same tick difficulty already scales,
+      // so they stack with Easy/Hard rather than replacing it.
+      const dReg = (__M.diff ? __M.diff().regen : 1) * (chr.noRegen ? 0 : chr.fastRegen ? 2 : 1);
       if (this.hp > 0 && this.hp < this.maxHp()) this.hp += (1 + Math.floor(this.skill('fieldmed') / 60)) * dReg;
       // Energy shares the health regen tick exactly: same clock, same amount.
       if ((this.energy ?? 100) < this.maxEnergy()) {
@@ -55473,7 +55485,11 @@ class Builder {
     return g;
   }
 
-  container(x, z, kind = 'locker', y = 0, { loot = [], locked = 0, label = null } = {}) {
+  // `onLoot` is a standard action list, run once the first time the container
+  // is opened. Some objectives are objects rather than conversations — a board
+  // in a locker, a body under a shopfront — and before this there was no way
+  // for finding one to move a quest along.
+  container(x, z, kind = 'locker', y = 0, { loot = [], locked = 0, label = null, onLoot = null } = {}) {
     const g = new THREE.Group();
     g.position.set(x, y, z);
     if (kind === 'locker') {
@@ -55491,7 +55507,7 @@ class Builder {
       this.collide(box(x, z, 1.05, 0.75, 0.66, y));
     }
     this.add(g);
-    this.interactables.push({ kind: 'container', ctype: kind, x, z, y: y + 0.9, radius: 2.0, loot: [...loot], locked, looted: false, label: label || (kind === 'safe' ? 'Wall Safe' : kind === 'locker' ? 'Steel Locker' : 'Supply Crate'), mesh: g });
+    this.interactables.push({ kind: 'container', ctype: kind, x, z, y: y + 0.9, radius: 2.0, loot: [...loot], locked, looted: false, onLoot, label: label || (kind === 'safe' ? 'Wall Safe' : kind === 'locker' ? 'Steel Locker' : 'Supply Crate'), mesh: g });
     return g;
   }
 
@@ -58867,7 +58883,14 @@ const LOCATIONS = {
       }
       b.pipes(0, 1, 13, 'x', 4.2);
       b.terminal(-3, 4.4, Math.PI, 0, { label: 'Pump Control', onUse: 'pump_control' });
-      b.container(4.6, 4.4, 'locker', 0, { loot: [['aquifer', 1]], locked: 70, label: 'Sealed Parts Locker' });
+      // Opening this is what turns the quest around: before, the log still
+      // read "a locker in the Sepulcher holds a matrix" long after the matrix
+      // was in your pack, and the waypoint kept pointing at an empty locker
+      // with nothing anywhere telling you to carry it back.
+      b.container(4.6, 4.4, 'locker', 0, {
+        loot: [['aquifer', 1]], locked: 70, label: 'Sealed Parts Locker',
+        onLoot: ['quest:stage:aquifer:3'],
+      });
 
       // Sunken sewer mouth, the way down to the Anomalies
       const mouth = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 3.0, 18, 1, true), material('concrete', { repeat: 3, side: THREE.DoubleSide }));
@@ -59032,12 +59055,15 @@ const LOCATIONS = {
       b.room(13, -22, 12, 10, { h: 4.0, floorMat: 'concrete', wallMat: steel, doors: [{ side: 'w', at: 0, width: 2.6 }] });
       b.lamp(13, -22, 3.7, 0xcfe4ff, 8, 13);
       b.sign(9.4, -22, Math.PI / 2, 'Armoury', { w: 2.8, h: 0.8, y: 3.0, color: '#c04a2a' });
-      for (const [x, z, loot] of [
-        [17, -26, [['railspike', 1], ['spike', 24], ['stormcaller', 1], ['c308', 60]]],
-        [17, -22, [['combatweave', 1], ['cyclone', 1], ['c5mm', 200]]],
-        [17, -18, [['cell_m', 30], ['supermed', 2]]],
-        [10.6, -26, [['ioncaster', 1], ['cell_m', 20], ['hailstorm', 1], ['grenade40', 18]]],
-      ]) b.container(x, z, 'locker', 0, { loot, locked: 55 });
+      // The first rack holds the Railspike the Iron Vow trade is written
+      // around, so it is named and left open; the rest of the armoury is
+      // optional hardware and stays locked.
+      for (const [x, z, loot, label] of [
+        [17, -26, [['railspike', 1], ['spike', 24], ['stormcaller', 1], ['c308', 60]], 'Armoury Rack'],
+        [17, -22, [['combatweave', 1], ['cyclone', 1], ['c5mm', 200]], null],
+        [17, -18, [['cell_m', 30], ['supermed', 2]], null],
+        [10.6, -26, [['ioncaster', 1], ['cell_m', 20], ['hailstorm', 1], ['grenade40', 18]], null],
+      ]) b.container(x, z, 'locker', 0, { loot, locked: 55, label });
 
       // Vat hall — the actual objective
       b.room(0, -40, 24, 20, { h: 7.0, floorMat: 'concrete', wallMat: steel, doors: [{ side: 'n', at: 0, width: 3.0 }] });
@@ -59530,6 +59556,17 @@ const LOCATIONS = {
       );
 
       b.interactables.push({ kind: 'exit', x: 0, z: 66, y: 1.6, radius: 4.0, to: 'wasteland', label: 'Leave Longbar' });
+
+      // The east blocks, and the apprentice Oso sent into them. Medic Oso's
+      // dialogue has always had a node for getting him back — it tested a flag
+      // that nothing in the world could set, so the quest could be taken and
+      // never finished. This is the shopfront he went under.
+      b.sign(59, -13, Math.PI, 'PHARMACY', { w: 3.0, h: 0.9, y: 2.6, color: '#c04a2a' });
+      b.container(59, -17, 'crate', 0, {
+        loot: [['medbag', 1], ['medstim', 2], ['radscrub', 1]],
+        label: 'Collapsed Shopfront',
+        onLoot: ['flag:found_ferrow', 'quest:stage:longbar_missing:2', 'xp:300'],
+      });
       b.sign(0, 65, 0, 'Wasteland Road', { w: 3.4, h: 0.8, y: 2.8 });
 
       return b.result({
@@ -59562,6 +59599,27 @@ function diff() {
 }
 __M.DIFFICULTIES = DIFFICULTIES;
 __M.diff = diff;
+
+// Cheats and modifiers. Read through a helper for exactly the reason
+// difficulty is: a save written before these existed, or a half-written
+// settings object, must degrade to "everything off" rather than to NaN
+// damage. Every rule reads it live, so a toggle takes effect on the next
+// shot rather than at the next load.
+const NO_CHEATS = Object.freeze({});
+function cheats() {
+  const c = window.game && window.game.settings && window.game.settings.cheats;
+  return (c && typeof c === 'object') ? c : NO_CHEATS;
+}
+// Multiplier applied to everything that hits the player. The two toggles are
+// mutually exclusive in the UI; if both somehow end up set, softer wins.
+function incomingMult() {
+  const c = cheats();
+  if (c.halfDamage) return 0.5;
+  if (c.doubleDamage) return 2;
+  return 1;
+}
+__M.cheats = cheats;
+__M.incomingMult = incomingMult;
 
 const MAP_NODES = Object.freeze({
   vault100:   { x: 50, y: 30, label: 'Bunker 100' },
@@ -61265,8 +61323,11 @@ const NPCS = {
       caught_pass: {
         text: '…Keep your voice down. Yes. The channel was cut and yes, it was cut on my order, and if that becomes common knowledge in this market I lose more than the contracts. Two thousand tokens and I open the sluice by a third. Do we understand each other?',
         options: [
-          { text: 'Open it by half.', to: 'settle', act: ['give:crown:2000', 'flag:sluice_opened', 'rep:dusthollow:+25', 'rep:nexus:-10', 'xp:600'] },
-          { text: 'I’ll tell them anyway.', to: 'expose', act: ['flag:calder_exposed', 'rep:nexus:-30', 'rep:dusthollow:+30', 'xp:400'] },
+          // Settling the channel is the whole of Everyone Downstream. Both
+          // endings now close it; before, either one left the quest open in
+          // the journal for the rest of the run with nothing left to do.
+          { text: 'Open it by half.', to: 'settle', act: ['give:crown:2000', 'flag:sluice_opened', 'rep:dusthollow:+25', 'rep:nexus:-10', 'xp:600', 'quest:stage:water_war:2', 'quest:complete:water_war'] },
+          { text: 'I’ll tell them anyway.', to: 'expose', act: ['flag:calder_exposed', 'rep:nexus:-30', 'rep:dusthollow:+30', 'xp:400', 'quest:stage:water_war:2', 'quest:complete:water_war'] },
         ],
       },
       caught_fail: {
@@ -61824,7 +61885,7 @@ const NPCS = {
       },
       ans_self: {
         text: 'The honest answer, and the dangerous one — but you said it without flinching and you did not dress it up. That is the most anyone has managed in four years. Ironhold will hear you out. It will not follow you.',
-        options: [{ text: 'Hearing me out is enough.', to: null, act: ['quest:start:vow_induction', 'quest:stage:vow_induction:2', 'flag:vow_trusted', 'rep:ironvow:+20', 'xp:500'] }],
+        options: [{ text: 'Hearing me out is enough.', to: null, act: ['quest:start:vow_induction', 'quest:stage:vow_induction:2', 'flag:vow_trusted', 'rep:ironvow:+20', 'xp:500', 'quest:complete:vow_induction'] }],
       },
       ans_bury: {
         text: 'We buried things for sixty years. Then somebody dug up Papillon Arsenal and here we are. Burial is a delay dressed as a decision.',
@@ -62545,7 +62606,11 @@ const { NPCS } = __M;
 // changes, derive it: walk every NPC's data — including function bodies,
 // which is where the conditional quest branches live — and flag anyone who
 // touches a main quest or one of its completion flags.
-const MAIN_QUEST_RE = /quest:(?:start|stage|done):(?:aquifer|vats)|aquifer_fitted|vats_purged|\baquifer\b/;
+// Anybody who can start, move or finish *any* quest is load-bearing, not just
+// the two main-line ones. A side quest whose giver caught a stray round is a
+// quest that can never be finished, and a save that quietly lost content is
+// worse than a fight the player was not allowed to win.
+const MAIN_QUEST_RE = /quest:(?:start|stage|done|complete):|aquifer_fitted|vats_purged|\baquifer\b/;
 const ESSENTIAL_NPCS = new Set();
 (function scanEssential() {
   const seen = new Set();
@@ -62985,6 +63050,9 @@ class Actor {
 
   takeDamage(amount, type, ctx, opts = {}) {
     if (this.dead) return 0;
+    // One-hit kills are applied before armour rather than after, so a target
+    // with heavy DR or a damage threshold still falls to a single round.
+    if (__M.cheats && __M.cheats().oneHitKills) amount = Math.max(amount, this.hp + (this.def.dt || 0) + 9999);
     const dt = this.def.dt || 0;
     let dr = (this.def.dr || 0) / 100;
     if (type === 'emp') dr = this.def.builder === 'robot' ? -0.5 : 0.9;
@@ -63949,7 +64017,13 @@ class Player {
     const crouchMul = this.crouch ? 0.48 : 1;
     const adsMul = this.adsT > 0.05 ? 0.62 : 1;
     const legMul = this.char.crippled.leg ? 0.55 : 1;
-    const speed = speedBase * sprintMul * crouchMul * adsMul * legMul;
+    // Applied last and to the finished figure, so it doubles every state the
+    // player can be in — walking, sprinting, crouched, aiming, hobbled — rather
+    // than only the flat base and leaving a crouch-walk oddly untouched. Head
+    // bob and the sprint camera drop key off this same number, so the stride
+    // keeps up with the legs instead of skating.
+    const cheatSpeed = (__M.cheats && __M.cheats().doubleSpeed) ? 2 : 1;
+    const speed = speedBase * sprintMul * crouchMul * adsMul * legMul * cheatSpeed;
 
     const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
@@ -64145,6 +64219,7 @@ class Player {
   canFire() {
     const w = this.weapon();
     if (this.reloading > 0) return false;
+    if (__M.cheats && __M.cheats().infiniteAmmo && w.cls !== 'thrown') return true;
     if (w.cls === 'melee') return true;
     if (w.cls === 'thrown') return this.char.count(w.id) > 0;
     if (w.mag) return this.char.loaded(this.weaponId) > 0;
@@ -64312,7 +64387,10 @@ class Player {
       this.game.ui.notify('Evaded', 'good');
       return 0;
     }
-    const dealt = this.char.hurt(amount * (__M.diff ? __M.diff().incoming : 1), type);
+    const dealt = this.char.hurt(
+      amount * (__M.diff ? __M.diff().incoming : 1) * (__M.incomingMult ? __M.incomingMult() : 1),
+      type,
+    );
     if (dealt > 0) {
       audio.play('hurt', { volume: 0.5, vary: 0.2 });
       this.game.ui.damageFlash(dealt / Math.max(1, this.char.maxHp()));
@@ -65082,7 +65160,9 @@ class UI {
     this.open = mode === 'save' ? 'save' : 'load';
     const g = this.game;
     const list = el('div', 'save-list');
-    const saves = g.listSaves();
+    // The autosave ring is for coming back from, not for writing over: it is
+    // offered on load and hidden when picking a slot to overwrite.
+    const saves = g.listSaves().filter((sl) => mode !== 'save' || !g.isAutosaveSlot(sl.id));
     if (!saves.length) list.appendChild(el('p', 'empty', mode === 'save' ? T('nosavesyet') : T('nosaves')));
     const fmtDate = (ts) => {
       const d = new Date(ts);
@@ -65227,6 +65307,62 @@ class UI {
       };
       row.appendChild(sel);
       wrap.appendChild(row);
+    }
+
+    // -- Cheats and modifiers ------------------------------------------------
+    // They live beside Difficulty because that is what they are: a coarser
+    // setting of the same dial. Each opposed pair is mutually exclusive, so
+    // switching one on switches its opposite off rather than leaving two
+    // contradictory rules arguing over the same number. Like every other
+    // setting they are read live and saved with the run.
+    wrap.appendChild(el('hr'));
+    wrap.appendChild(el('h3', null, 'Cheats & modifiers'));
+    wrap.appendChild(el('p', 'hint', 'Applied immediately and kept with your save. Quests, dialogue and the map are untouched — these only move the numbers.'));
+    {
+      const c = this.game.settings.cheats || (this.game.settings.cheats = {});
+      const boxes = {};
+      const OPPOSED = {
+        halfDamage: 'doubleDamage', doubleDamage: 'halfDamage',
+        noRegen: 'fastRegen', fastRegen: 'noRegen',
+      };
+      const cheat = (key, label) => {
+        const row = el('label', 'field toggle');
+        row.appendChild(el('span', null, label));
+        const i = el('input');
+        i.type = 'checkbox';
+        i.checked = !!c[key];
+        i.onchange = () => {
+          c[key] = i.checked;
+          const other = OPPOSED[key];
+          if (i.checked && other) {
+            c[other] = false;
+            if (boxes[other]) boxes[other].checked = false;
+          }
+          audio.play(i.checked ? 'ui_accept' : 'ui_deny', { bus: 'ui', volume: 0.22 });
+        };
+        boxes[key] = i;
+        row.appendChild(i);
+        wrap.appendChild(row);
+      };
+      cheat('godMode', 'Infinite health');
+      cheat('infiniteAmmo', 'Bottomless clip (infinite ammo)');
+      cheat('infiniteAp', 'Infinite attack points');
+      cheat('oneHitKills', 'One-hit kills');
+      cheat('halfDamage', 'Enemies do half damage');
+      cheat('doubleDamage', 'Enemies do double damage');
+      cheat('noRegen', 'No health regeneration');
+      cheat('fastRegen', 'Double-speed health regeneration');
+      cheat('doubleSpeed', 'Double walk speed');
+
+      // A one-off rather than a toggle: tokens weigh nothing, so there is no
+      // encumbrance to worry about and nothing to switch back off.
+      const money = el('button', null, 'Add 1,000,000 ration tokens');
+      money.onclick = () => {
+        this.game.char.add('crown', 1000000);
+        audio.play('ui_accept', { bus: 'ui', volume: 0.3 });
+        this.notify('+1,000,000 ration tokens', 'good');
+      };
+      wrap.appendChild(money);
     }
 
     wrap.appendChild(el('hr'));
@@ -65916,6 +66052,15 @@ const { makeMuzzleFlash } = __M;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 
+// -- Autosave tuning --------------------------------------------------------
+// Autosaves rotate through a ring of slots rather than overwriting one, so a
+// bad decision two minutes ago is still recoverable after the autosave that
+// followed it. Six slots at two minutes apart is roughly a quarter of an hour
+// of history for about six kilobytes of it.
+const AUTOSAVE_SLOTS = 6;    // rotating ring: autosave_0 … autosave_5
+const AUTOSAVE_PERIOD = 120; // seconds of real time between rolls
+const AUTOSAVE_GRACE = 60;   // longest the roll will wait out a firefight
+
 // -- Attack Focus / APIS tuning ---------------------------------------------
 const AF_MAX_RANGE = 34;      // farthest a target can be to enter Attack Focus
 const AF_CAM_IN = 0.3;        // seconds, real time — cut to the close-up
@@ -65938,6 +66083,14 @@ class Game {
       shadows: true, holdAds: true, postfx: true, ssao: true, fxaa: true,
       touch: matchMedia('(pointer: coarse)').matches,
       autosave: true, difficulty: 'medium',
+      // Off until switched on, and saved with the run like every other
+      // setting, so a cheated save stays cheated rather than quietly
+      // reverting to a fight it was never balanced for.
+      cheats: {
+        godMode: false, infiniteAmmo: false, infiniteAp: false, oneHitKills: false,
+        halfDamage: false, doubleDamage: false, noRegen: false, fastRegen: false,
+        doubleSpeed: false,
+      },
     };
     this.started = false;
 
@@ -66108,10 +66261,29 @@ class Game {
 
     // Restore per-location persistence: emptied containers stay empty.
     const state = this.locationState[id] || (this.locationState[id] = { looted: {}, cleared: {} });
+    const questConts = this.questContainers();
     for (const it of this.interactables) {
       const key = `${it.kind}:${Math.round(it.x)}:${Math.round(it.z)}`;
       it._key = key;
       if (state.looted[key]) { it.loot = []; it.looted = true; it.locked = 0; }
+      // Nothing an objective lives inside is allowed to stay shut. A container
+      // the waypoint names, or one holding a quest item, opens for anybody;
+      // every other cache in the world still costs a Lockcraft roll, which is
+      // where the reward for the skill now lives.
+      if (it.kind === 'container' && it.locked) {
+        const named = questConts.has(String(it.label || '').toLowerCase());
+        const carries = (it.loot || []).some(([iid]) => itemDef(iid) && itemDef(iid).quest);
+        if (named || carries) it.locked = 0;
+      }
+    }
+
+    // Standing somewhere teaches you the roads that leave it. Without this the
+    // Cistern, Ironhold, Kiln Flats and Longbar were sealed off for good: the
+    // world map only offers travel to places you know, the only quests naming
+    // them start inside them, and no signpost in the Dust Sea points that way.
+    if (!this.encounterId && MAP_NODES[id]) {
+      const roads = this.mapAdjacency()[id] || [];
+      for (const n of roads) if (!this.discovered.has(n)) this.routeKnownSet().add(n);
     }
 
     this.scene.fog = built.fog ? new THREE.Fog(built.fog.color, built.fog.near, built.fog.far) : null;
@@ -66334,7 +66506,7 @@ class Game {
       const encMult = this.char.mods().mult.encounter ?? 1;
       const enc = Math.random() < encMult ? rollEncounter(this.char, hours, this.seenEncounters) : null;
       if (enc) {
-        if (ENCOUNTERS[enc].once) this.seenEncounters.add(enc);
+        this.retireEncounter(enc);
         this.travelDest = id;
         const built = buildEncounter(enc);
         this.loadLocation('wasteland', null, built);
@@ -66989,7 +67161,7 @@ class Game {
     const w = this.player.weapon();
     if (w.cls === 'thrown') { this.ui.notify("Can't focus-target with a thrown weapon", 'bad'); return; }
     if (!this.player.canFire()) { this.ui.notify(__M.T('weaponempty'), 'bad'); return; }
-    if ((this.char.energy ?? 100) < 30) { this.ui.notify(__M.T('noenergy'), 'bad'); return; }
+    if ((this.char.energy ?? 100) < 30 && !__M.cheats().infiniteAp) { this.ui.notify(__M.T('noenergy'), 'bad'); return; }
     const targets = this.findAttackFocusTargets();
     if (!targets.length) { this.ui.notify(__M.T('notarget'), 'bad'); return; }
     document.exitPointerLock?.();
@@ -67027,7 +67199,7 @@ class Game {
     this.ui.closeAttackFocus();
     this.ui.crosshair.dataset.hidden = '1';
     this.char.spendRound(this.player.weaponId, 1);
-    this.char.energy = Math.max(0, (this.char.energy ?? 100) - 30);
+    if (!__M.cheats().infiniteAp) this.char.energy = Math.max(0, (this.char.energy ?? 100) - 30);
     this.char.wearWeapon(this.player.weaponId, 1);
 
     const cam = this.player.camera;
@@ -67155,6 +67327,7 @@ class Game {
   startQuest(id) {
     if (!QUESTS[id] || this.quests[id]) return;
     this.quests[id] = { id, stage: 0, done: false, kills: 0 };
+    this.restoreQuestEncounters();
     this.ui.notify(`New: ${QUESTS[id].name}`, 'good');
     audio.play('ui_accept', { bus: 'ui', volume: 0.35 });
   }
@@ -67341,6 +67514,12 @@ class Game {
       this.ui.loot(it);
       const state = this.locationState[this.locationId];
       if (state) state.looted[it._key] = true;
+      // Opening it is the event, not carrying the contents home: the quest
+      // moves on even if the player leaves the loot in the box.
+      if (it.onLoot && !it._fired) {
+        it._fired = true;
+        applyAction(this.dialogueCtx(), it.onLoot);
+      }
       return;
     }
 
@@ -67348,7 +67527,12 @@ class Game {
       const fn = TERMINALS[it.onUse];
       if (!fn) return this.ui.notify('Terminal is dead.', 'bad');
       const ctx = this.dialogueCtx();
+      // Which console this is, so the skill check behind it knows whether it
+      // is standing between the player and an objective or between the player
+      // and an optional prize.
+      this._openTerminal = it.onUse;
       const result = fn(ctx);
+      this._openTerminal = null;
       this.pauseForPanel();
       this.ui.terminal(result, (choice) => {
         applyAction(ctx, choice.act);
@@ -67374,9 +67558,17 @@ class Game {
     this.char.setFlag('pit_done');
     this.ui.notify('Three rounds. No guns.', 'bad');
     const waves = [['scraphound', 2], ['blademan', 2], ['ashwolfvet', 1]];
+    // The rounds arrive on a real-time timer. If the player has walked out of
+    // Scrapgate — or died and been restored — in the twenty-eight seconds the
+    // three waves take, the fight must not follow them into whatever map they
+    // are standing in now, which is how a Pit bout used to end up spawning
+    // Blade Mantises into the middle of Bunker 100.
+    const arenaLoc = this.locationId;
+    const token = (this._arenaToken = (this._arenaToken || 0) + 1);
     let delay = 0;
     for (const [creature, count] of waves) {
       setTimeout(() => {
+        if (this._arenaToken !== token || this.encounterId || this.locationId !== arenaLoc) return;
         for (let i = 0; i < count; i += 1) {
           const a = new Actor(creature, (Math.random() - 0.5) * 8, 20 + (Math.random() - 0.5) * 8, {});
           __M.tintActor?.(a);
@@ -67408,7 +67600,17 @@ class Game {
         cure: () => this.cure(),
         makeHostile: () => this.makeHostile(),
         startCountdown: (s) => this.startCountdown(s),
-        check: (skill, dc) => skillCheck(this.char, skill, dc - 50),
+        // Skill checks gate rewards, never objectives. A console the story
+        // sends you to must open for whoever the story sent — a character
+        // built for shooting should not be locked out of the plot because
+        // Technics was the wrong number. Consoles that only hold optional
+        // prizes still want the skill, which is what the skill is for.
+        check: (skill, dc) => {
+          if (this._openTerminal && this.questHardware().has(this._openTerminal)) {
+            return { pass: true, roll: 100, target: 0, free: true };
+          }
+          return skillCheck(this.char, skill, dc - 50);
+        },
       };
     }
     return this._dctx;
@@ -67862,6 +68064,27 @@ class Game {
     return this._readIndex().sort((a, b) => b.ts - a.ts);
   }
 
+  // The slot the next autosave should take: the first unused one, else the
+  // oldest. Read off the index rather than kept in a counter, so it survives a
+  // reload and self-corrects if a slot is deleted by hand.
+  nextAutosaveSlot() {
+    const idx = this._readIndex();
+    // Older builds wrote one slot literally called `autosave`. Retire it the
+    // first time the ring turns, rather than leaving a stale entry at the top
+    // of the load list forever.
+    if (idx.some((sl) => sl.id === 'autosave')) this.deleteSave('autosave');
+    let oldest = 'autosave_0', oldestTs = Infinity;
+    for (let i = 0; i < AUTOSAVE_SLOTS; i += 1) {
+      const id = `autosave_${i}`;
+      const meta = idx.find((sl) => sl.id === id);
+      if (!meta) return id;
+      if (meta.ts < oldestTs) { oldestTs = meta.ts; oldest = id; }
+    }
+    return oldest;
+  }
+
+  isAutosaveSlot(id) { return /^autosave/.test(String(id || '')); }
+
   save(slotId = null) {
     const data = {
       v: 1,
@@ -67881,12 +68104,17 @@ class Game {
       revolted: this.revolted,
       returnSpots: this.returnSpots,
       tracked: this.tracked,
+      // A countdown that vanished on load left the Arsenal standing with the
+      // quest already advanced to its last stage and no way left to finish it.
+      countdownT: this.countdownT || 0,
+      alarm: !!this.alarm,
       sv: 2,
     };
     const id = slotId || `slot_${Date.now()}`;
     const meta = {
       id, ts: Date.now(),
-      name: (this.char.name || 'Occupant') + (id === 'autosave' ? ' (Autosave)' : ''),
+      name: (this.char.name || 'Occupant') + (this.isAutosaveSlot(id) ? ' (Autosave)' : ''),
+      auto: this.isAutosaveSlot(id) || undefined,
       level: this.char.level || 1,
       location: LOCATIONS[this.locationId]?.name || this.locationId || 'Unknown',
     };
@@ -67929,6 +68157,9 @@ class Game {
     this.discovered = new Set(data.discovered || ['vault100']);
     this.routeKnown = new Set(data.routeKnown || []);
     this.seenEncounters = new Set(data.seenEncounters || []);
+    // Repair saves written before roadside objectives were protected: any
+    // encounter an open quest still needs goes back on the road.
+    this.restoreQuestEncounters();
     this.travelDest = data.travelDest || null;
     this.merchants = data.merchants || {};
     this.locationState = data.locationState || {};
@@ -67944,6 +68175,8 @@ class Game {
     this.revolted = data.revolted || [];
     this.returnSpots = data.returnSpots || {};
     this.tracked = data.tracked || null;
+    this.countdownT = data.countdownT || 0;
+    this.alarm = !!data.alarm;
     if (!this.player) {
       this.player = new Player(this);
       this.scene.add(this.player.camera);
@@ -68006,16 +68239,19 @@ class Game {
       if (this._alarmT > 0) { this._alarmT -= dt; if (this._alarmT <= 0) this.alarm = false; }
 
       if (this._revoltLoc !== this.locationId) { this._revoltLoc = this.locationId; this.applyRevolts(); }
-      // Timed trigger, gated so a save-induced hitch never lands mid-fight —
-      // rolls a new autosave into the dedicated slot on the normal cycle.
+      // Timed trigger on a two-minute cycle, rolling into the next slot of the
+      // autosave ring. It still prefers not to land mid-fight — the write is a
+      // visible hitch — but it will no longer wait out a long one forever:
+      // past the grace period it saves anyway, because a restore point during
+      // the fight that killed you is worth more than a smooth frame.
       if (this.settings.autosave) {
         this._autosaveAcc = (this._autosaveAcc || 0) + dt;
-        if (this._autosaveAcc > 180) {
+        if (this._autosaveAcc > AUTOSAVE_PERIOD) {
           const nearFight = this.actors.some((a) => !a.dead && !a.isNpc && a.hostile
             && Math.hypot(a.pos.x - this.player.pos.x, a.pos.z - this.player.pos.z) < 15);
-          if (!nearFight) {
+          if (!nearFight || this._autosaveAcc > AUTOSAVE_PERIOD + AUTOSAVE_GRACE) {
             this._autosaveAcc = 0;
-            this.save('autosave');
+            this.save(this.nextAutosaveSlot());
             this.ui.notify(__M.T('autosaved'), '');
           }
         }
@@ -68236,6 +68472,7 @@ class Game {
   //   { loc, term }       use a terminal, matched on its onUse id
   //   { loc, cont }       open a container, matched on its label
   //   { loc, at, name }   walk to a spot in a location that has no marker
+  //   { item, count, then } once you are carrying it, follow `then` instead
   //   { creature, loc? }  hunt — loc optional, else the nearest place it lives
   //   { road: true, … }   the objective is a roadside find, out on the map
   //   null                a closing stage with nothing left to do
@@ -68249,7 +68486,7 @@ class Game {
       aquifer: [
         { loc: 'vault100', npc: 'overseer' },
         { loc: 'nexus', npc: 'water_baron_calder' },
-        { loc: 'sepulcher', cont: 'Sealed Parts Locker' },
+        { loc: 'sepulcher', cont: 'Sealed Parts Locker', item: 'aquifer', then: { loc: 'vault100', term: 'purifier' } },
         { loc: 'vault100', term: 'purifier' },
         null,
       ],
@@ -68277,12 +68514,12 @@ class Game {
         { loc: 'scrapgate', npc: 'sheriff_kade' },
       ],
       caravan: [
-        { loc: 'dusthollow', cont: 'Village Stores' },
+        { loc: 'dusthollow', cont: 'Village Stores', item: 'ration', count: 3, then: { loc: 'nexus', npc: 'caravan_mott' } },
         { loc: 'nexus', npc: 'caravan_mott' },
       ],
       ironvow: [
         { loc: 'nexus', npc: 'ironvow_scribe' },
-        { loc: 'arsenal', at: { x: 17, z: -26 }, name: 'Arsenal Armoury' },
+        { loc: 'arsenal', cont: 'Armoury Rack', item: 'railspike', then: { loc: 'nexus', npc: 'ironvow_scribe' } },
         { loc: 'nexus', npc: 'ironvow_scribe' },
       ],
       withered: [
@@ -68344,7 +68581,7 @@ class Game {
       ],
       bench_stock: [
         { loc: 'scrapgate', npc: 'gunsmith_vey' },
-        { road: true, cont: 'Stencilled Crate' },
+        { road: true, cont: 'Stencilled Crate', item: 'blanks', then: { loc: 'scrapgate', npc: 'gunsmith_vey' } },
         { loc: 'scrapgate', npc: 'gunsmith_vey' },
       ],
       debt_pipe: [
@@ -68358,7 +68595,7 @@ class Game {
       ],
       the_names: [
         { loc: 'sepulcher', npc: 'withered_mayor' },
-        { loc: 'sepulcher', cont: 'Municipal Cabinet' },
+        { loc: 'sepulcher', cont: 'Municipal Cabinet', item: 'register', then: { loc: 'sepulcher', npc: 'withered_mayor' } },
         { loc: 'sepulcher', npc: 'withered_mayor' },
       ],
       the_unasked: [
@@ -68392,6 +68629,34 @@ class Game {
     return this._wpt;
   }
 
+  // Consoles that carry the story: any terminal whose own code starts, moves
+  // or finishes a quest. Derived rather than listed, so a new terminal that
+  // advances something is covered the day it is written, and a terminal that
+  // only hands out loot and lore keeps its lock.
+  questHardware() {
+    if (this._qhw) return this._qhw;
+    const set = new Set();
+    for (const tid of Object.keys(TERMINALS)) {
+      const src = String(TERMINALS[tid] || '');
+      if (/quest:(start|stage|complete|done):/.test(src)) set.add(tid);
+    }
+    this._qhw = set;
+    return set;
+  }
+
+  // Containers the waypoint sends the player to by name. Paired with the
+  // quest-item test below, this is what decides which locks are allowed to
+  // stand between someone and their objective: none of them.
+  questContainers() {
+    if (this._qcont) return this._qcont;
+    const set = new Set();
+    for (const row of Object.values(this.questWays())) {
+      for (const st of row) if (st && st.cont) set.add(String(st.cont).toLowerCase());
+    }
+    this._qcont = set;
+    return set;
+  }
+
   // Static index of the world, read out of the location and encounter
   // builders' source rather than by running them — building all twelve maps
   // to find out where one NPC stands would cost seconds. Where an id appears
@@ -68413,7 +68678,17 @@ class Game {
         if (idx.termLoc[tid] || idx.termEnc[tid]) continue;
         if (new RegExp("onUse:\\s*['\"`]" + tid + "['\"`]").test(src)) (isEnc ? idx.termEnc : idx.termLoc)[tid] = place;
       }
-      if (isEnc) return;
+      if (isEnc) {
+        // Container labels, so a step that names a crate found only on the
+        // road can be traced back to the encounter that holds it.
+        const lab = /label:\s*['"`]([^'"`]+)['"`]/g;
+        let lm;
+        while ((lm = lab.exec(src))) {
+          const key = lm[1].toLowerCase();
+          if (!idx.contEnc[key]) idx.contEnc[key] = place;
+        }
+        return;
+      }
       const re = /creature:\s*['"`]([a-z0-9_]+)['"`]/gi;
       let m;
       while ((m = re.exec(src))) {
@@ -68490,6 +68765,48 @@ class Game {
     return best;
   }
 
+  // Which travel encounter carries which quest's objective. Four steps in the
+  // game are roadside finds — a crate in a wreck field, a lost hauler, a relay
+  // mast, a bleeding stranger — and each lives inside one encounter.
+  questEncounters() {
+    if (this._qenc) return this._qenc;
+    const idx = this.worldIndex();
+    const map = new Map();
+    for (const [qid, row] of Object.entries(this.questWays())) {
+      for (const st of row) {
+        if (!st) continue;
+        let eid = null;
+        if (st.term && idx.termEnc[st.term]) eid = idx.termEnc[st.term];
+        else if (st.npc && idx.npcEnc[st.npc]) eid = idx.npcEnc[st.npc];
+        else if (st.cont && idx.contEnc[String(st.cont).toLowerCase()]) eid = idx.contEnc[String(st.cont).toLowerCase()];
+        if (eid && !map.has(eid)) map.set(eid, qid);
+      }
+    }
+    this._qenc = map;
+    return map;
+  }
+
+  // A once-only encounter is retired the moment it is rolled. For the four
+  // that carry an objective that was a quiet, unrecoverable dead end: meet the
+  // lost hauler before Caravan-master Mott ever mentions it and the quest he
+  // later gives you can never be finished, because the only place its manifest
+  // exists has been struck off the table for good.
+  retireEncounter(eid) {
+    if (!ENCOUNTERS[eid] || !ENCOUNTERS[eid].once) return;
+    const qid = this.questEncounters().get(eid);
+    if (qid && !(this.quests[qid] && this.quests[qid].done)) return;
+    this.seenEncounters.add(eid);
+  }
+
+  // And the same rule read backwards, for a save where it has already
+  // happened: taking the quest puts its encounter back on the road.
+  restoreQuestEncounters() {
+    for (const [eid, qid] of this.questEncounters()) {
+      const q = this.quests[qid];
+      if (q && !q.done) this.seenEncounters.delete(eid);
+    }
+  }
+
   questWays() {
     if (this._ways) return this._ways;
     const table = this.waypointTable();
@@ -68542,7 +68859,17 @@ class Game {
     // rather than letting the marker blink out on the final beat.
     while (i >= 0 && !row[i]) i -= 1;
     if (i < 0) return null;
-    return Object.assign({ quest: id }, row[i]);
+    let st = row[i];
+    // A fetch step points at the thing until you have it, then at whoever
+    // wants it. Without this the marker sat on an empty locker for the rest of
+    // the run and nothing anywhere said to carry the contents home.
+    let guard = 0;
+    while (st && st.item && st.then && guard < 8) {
+      if (!this.char || this.char.count(st.item) < (st.count || 1)) break;
+      st = st.then;
+      guard += 1;
+    }
+    return Object.assign({ quest: id }, st);
   }
 
   // Which location a step resolves to, for the world map pin and the route.
@@ -68865,11 +69192,40 @@ class Game {
     this.completeQuest('vats');
   }
 
+  // Dying rolls the run back to the most recent save rather than ending it.
+  // The Dust Sea is meant to be dangerous, not to cost an hour of walking; the
+  // ending screen is kept for the one case where there is genuinely nothing to
+  // go back to.
   onDeath() {
+    if (this._dying) return;
+    this._dying = true;
     this.paused = true;
     document.exitPointerLock?.();
     audio.music(null);
-    this.ui.gameOver('You Stopped Walking', 'The Dust Sea takes everyone eventually, and it is not sentimental about the order. Somewhere behind you a bunker is still counting days.');
+
+    const latest = this.listSaves()[0] || this._memMeta || null;
+    if (!latest && !this._memSave) {
+      this._dying = false;
+      this.ui.gameOver('You Stopped Walking', 'The Dust Sea takes everyone eventually, and it is not sentimental about the order. Somewhere behind you a bunker is still counting days.');
+      return;
+    }
+
+    this.ui.notify('You stopped walking — restoring your last save', 'bad');
+    audio.play('ui_deny', { bus: 'ui', volume: 0.45 });
+    // A beat before the world swaps under the player, so the death registers
+    // as something that happened rather than as a glitch.
+    setTimeout(() => {
+      let ok = false;
+      try { ok = this.load(latest ? latest.id : null); } catch { ok = false; }
+      this._dying = false;
+      if (!ok) {
+        this.ui.gameOver('You Stopped Walking', 'The Dust Sea takes everyone eventually, and it is not sentimental about the order. Somewhere behind you a bunker is still counting days.');
+        return;
+      }
+      const when = latest && latest.ts ? Math.max(0, Math.round((Date.now() - latest.ts) / 1000)) : null;
+      const ago = when == null ? '' : (when < 90 ? ` (${when}s ago)` : ` (${Math.round(when / 60)}m ago)`);
+      this.ui.notify(`Restored: ${(latest && latest.location) || 'last save'}${ago}`, 'good');
+    }, 1100);
   }
 }
 
