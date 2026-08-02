@@ -387,6 +387,11 @@ html, body {
 .focus-result em { font-style: normal; font-size: .6rem; letter-spacing: .12em; color: #C04A2A; text-transform: uppercase; }
 .focus-result.crit { border-color: #C04A2A; box-shadow: 0 0 26px rgba(192,74,42,.28); }
 .focus-result.crit b { color: #E0A03A; }
+/* A miss is the quiet version of the same card: no glow, no colour, nothing
+   to read as a hit at a glance. */
+.focus-result.miss { border-color: rgba(232,220,196,.2); background: rgba(11,9,6,.62); }
+.focus-result.miss b { color: rgba(232,220,196,.55); }
+.focus-result.miss i { color: rgba(232,220,196,.5); }
 @keyframes focusRes { from { opacity: 0; transform: translateX(-50%) translateY(8px); } }
 
 .focus-hint { margin-top: .55rem; font-size: .58rem; letter-spacing: .06em; color: var(--slate); text-align: center; }
@@ -619,6 +624,10 @@ kbd {
 .route b { font-size: .72rem; color: var(--bone); font-weight: 400; }
 .route span { font-size: .62rem; letter-spacing: .08em; color: var(--slate); }
 .gauge.en { height: 5px; margin-top: .3rem; }
+/* The pool's readout sits under its own bar and is deliberately quieter and
+   smaller than the health figure above it — same colour as the gauge it
+   belongs to, so the eye pairs them without being pulled off the HP line. */
+.gauge-label.ap { font-size: .6rem; color: var(--verdigris); letter-spacing: .14em; margin-top: .12rem; }
 .gauge.en i { display: block; height: 100%; background: linear-gradient(90deg, #2f6f5e, #4FA88B); box-shadow: 0 0 6px rgba(79,168,139,.45); }
 
 /* --- save slots --- */
@@ -758,6 +767,11 @@ kbd {
   display: grid; place-items: center;
 }
 .tbtn[data-on="1"] { background: rgba(255,179,58,.3); border-color: var(--sodium); color: var(--sodium); }
+/* The Attack Focus panel is centred at the bottom of the screen and #touch
+   paints over #hud, so with the pads left up FIRE sat directly on top of the
+   panel's Attack button. The whole touch layer stands down while the panel is
+   open — it carries its own Attack and Cancel. */
+#touch[data-focus="1"] .tbtn, #touch[data-focus="1"] .stick { display: none; }
 /* The face buttons are laid out around the two pads: nothing may sit inside
    the 162px square each pad occupies in its corner, or a thumb reaching for
    the stick lands on a button instead. */
@@ -771,6 +785,10 @@ kbd {
 .med    { left: 178px;  bottom: 26px;  width: 56px; height: 56px; border-color: rgba(79,168,139,.5); }
 .torch  { left: 242px;  bottom: 26px;  width: 56px; height: 56px; border-color: rgba(255,226,176,.55); }
 .swap   { left: 178px;  bottom: 90px;  width: 56px; height: 56px; }
+/* Attack Focus. Spelled out rather than abbreviated — "AF" means nothing to
+   anyone who has not read the controls screen, and this is the one button
+   here that stops time. */
+.tfocus { left: 242px;  bottom: 90px;  width: 56px; height: 56px; font-size: .5rem; border-color: rgba(255,179,58,.6); color: var(--sodium); }
 .fix    { left: 178px;  bottom: 154px; width: 56px; height: 56px; }
 .inv    { left: 22px;   top: 84px;  width: 54px; height: 54px; }
 .menu   { left: 22px;   top: 20px;  width: 54px; height: 54px; font-size: 1.1rem; }
@@ -791,6 +809,7 @@ kbd {
   .med    { left: 148px;  bottom: 20px;  width: 50px; height: 50px; }
   .torch  { left: 206px;  bottom: 20px;  width: 50px; height: 50px; }
   .swap   { left: 148px;  bottom: 78px;  width: 50px; height: 50px; }
+  .tfocus { left: 206px;  bottom: 78px;  width: 50px; height: 50px; font-size: .46rem; }
   .fix    { left: 148px;  bottom: 136px; width: 50px; height: 50px; }
 }
 
@@ -53941,6 +53960,32 @@ const __M = Object.create(null);
 // directly and the validators in scripts/ can assert on real behaviour.
 
 // ---------------------------------------------------------------------------
+// What the Attack Focus pool is called, in one place.
+//
+// This is the resource APIS spends: the pool on the character sheet, the lower
+// gauge on the biomarker panel, and the thing Quickstep and Fast Hands move.
+// Every user-facing mention of it in the game reads these three constants, so
+// renaming the whole mechanic is a one-line edit here rather than a hunt
+// through data, UI strings and cheat labels.
+//
+// The abbreviation is deliberately still AP, which keeps APIS — the Adrenal
+// Point Integration System — meaning what its acronym says, and keeps the
+// internal identifiers (maxAp, AP_ENERGY, apShot, moveAp, a weapon's `ap`
+// cost) honest rather than turning them into leftovers of an old name.
+// -- Sneak attacks ----------------------------------------------------------
+// A "registered" sneak attack is one landed on something that has not noticed
+// you: never alerted, not hunting, not already hurt in this fight. The moment
+// it connects the target is alerted by takeDamage, so this is at most one
+// attack per target per engagement — which is what lets the numbers be this
+// large without turning every fight into a stealth-opener formality.
+const SNEAK_DMG_MULT = 2;     // flat doubling, applied *after* armour
+const SNEAK_CRIT_BONUS = 60;  // crit-chance bonus on a registered sneak attack
+
+const AP_NAME = 'Adrenal Points';
+const AP_NAME_ONE = 'Adrenal Point';
+const AP_ABBR = 'AP';
+
+// ---------------------------------------------------------------------------
 // CORE STATS — the seven attributes. Range 1..10, 5 is baseline human.
 // ---------------------------------------------------------------------------
 const ATTRIBUTES = Object.freeze([
@@ -53949,7 +53994,7 @@ const ATTRIBUTES = Object.freeze([
   { id: 'resolve',       abbr: 'RES', name: 'Resolve',       blurb: 'Stamina and constitution. Sets health and poison resistance.' },
   { id: 'tact',          abbr: 'TAC', name: 'Tact',          blurb: 'Bearing and persuasion. Sets prices and who will travel with you.' },
   { id: 'understanding', abbr: 'UND', name: 'Understanding', blurb: 'Reasoning and recall. Sets skill points per level and dialogue depth.' },
-  { id: 'edge',          abbr: 'EDG', name: 'Edge',          blurb: 'Speed and coordination. Sets action points and how fast you aim.' },
+  { id: 'edge',          abbr: 'EDG', name: 'Edge',          blurb: `Speed and coordination. Sets ${AP_NAME.toLowerCase()} and how fast you aim.` },
   { id: 'serendipity',   abbr: 'SER', name: 'Serendipity',   blurb: 'Fortune. Bends criticals, loot rolls and rare encounters.' },
 ]);
 
@@ -53989,7 +54034,7 @@ const SKILLS = Object.freeze([
 const SKILL_IDS = SKILLS.map((s) => s.id);
 const SKILL_MAX = 200;
 
-// Energy per Action Point. Seven AP — an average sheet — comes to the 100-point
+// Energy per Adrenal Point. Seven AP — an average sheet — comes to the 100-point
 // pool the Attack Focus meter was fixed at before, and an aimed shot costs two
 // of them. Declared here because the character maths that spends it is defined
 // long before the combat code that reads it.
@@ -54002,12 +54047,12 @@ const TAG_SKILL_BONUS = 20;
 // `mods` is applied by char.js: attr/skill/derived deltas plus flags.
 // ---------------------------------------------------------------------------
 const TRAITS = Object.freeze([
-  { id: 'bullneck',   name: 'Bullneck',      up: '+2 Brawn',                 down: '−2 Action Points',        mods: { attr: { vigor: 2 }, derived: { ap: -2 } } },
+  { id: 'bullneck',   name: 'Bullneck',      up: '+2 Brawn',                 down: `−2 ${AP_NAME}`,           mods: { attr: { vigor: 2 }, derived: { ap: -2 } } },
   // Was a contradiction: it discounted aimed shots and then forbade them, and
   // neither half was wired to anything. It is now what it always described —
   // a shooter who fires from the hip and never lines one up.
   { id: 'snapshooter',name: 'Snapshooter',   up: '+10 to every combat skill', down: 'Cannot use Attack Focus', mods: { skillGroup: { combat: 10 }, flags: { noAimedShot: true } } },
-  { id: 'precision',  name: 'Precision',     up: '+10% critical chance',     down: '−1 AP every action',      mods: { derived: { crit: 10, ap: -1 } } },
+  { id: 'precision',  name: 'Precision',     up: '+10% critical chance',     down: `−1 ${AP_ABBR} every action`, mods: { derived: { crit: 10, ap: -1 } } },
   { id: 'reckless',   name: 'Reckless',      up: '+25% damage dealt',        down: '+35% damage taken',       mods: { mult: { dmgOut: 1.25, dmgIn: 1.35 } } },
   { id: 'prodigy',    name: 'Prodigy',       up: '+1 to every attribute',    down: '−10 to every skill, −5 skill points per level', mods: { attrAll: 1, skillAll: -10, derived: { skillPts: -5 } } },
   { id: 'skilled',    name: 'Studious',      up: '+5 skill points per level',down: 'Perks arrive one level later', mods: { derived: { skillPts: 5 }, flags: { slowPerks: true } } },
@@ -54031,7 +54076,7 @@ const PERKS = Object.freeze([
   { id: 'appraise',    name: 'Appraise',        lvl: 3,  req: {},                              desc: 'You always know what a thing is worth. Better prices, buying and selling.', mods: { mult: { price: 1.12 } } },
   { id: 'ironknuckle', name: 'Iron Knuckles',   lvl: 3,  req: { attr: { vigor: 6 } },          desc: '+3 damage on every unarmed strike.',                   mods: { derived: { unarmedDmg: 3 } }, ranks: 3 },
   { id: 'fleetstep',   name: 'Fleet Step',      lvl: 6,  req: { attr: { edge: 5 } },           desc: 'You cover ground faster than anyone has a right to on foot.',      mods: { derived: { moveAp: 2 } }, ranks: 2 },
-  { id: 'fasthands',   name: 'Fast Hands',      lvl: 15, req: { attr: { edge: 7 } },           desc: 'Every shot costs 1 less Action Point.',                mods: { derived: { apShot: -1 } } },
+  { id: 'fasthands',   name: 'Fast Hands',      lvl: 15, req: { attr: { edge: 7 } },           desc: `Every shot costs 1 less ${AP_NAME_ONE}.`,             mods: { derived: { apShot: -1 } } },
   { id: 'faststudy',   name: 'Fast Study',      lvl: 3,  req: { attr: { understanding: 6 } },  desc: 'Manuals and terminals teach you 50% more.',            mods: { mult: { study: 1.5 } } },
   { id: 'firstword',   name: 'First Word',      lvl: 3,  req: { attr: { insight: 6 } },        desc: '+2 to initiative — you act before nearly anything.',   mods: { derived: { init: 2 } }, ranks: 3 },
   { id: 'schooled',    name: 'Schooled',        lvl: 6,  req: { attr: { understanding: 6 } },  desc: '+2 skill points every level.',                         mods: { derived: { skillPts: 2 } }, ranks: 3 },
@@ -54046,7 +54091,7 @@ const PERKS = Object.freeze([
   { id: 'sniper',      name: 'Marksman’s Eye',  lvl: 18, req: { attr: { insight: 8, edge: 8 } }, desc: 'Any aimed hit can roll a critical on Serendipity.',  mods: { flags: { sniper: true } } },
   { id: 'slayer',      name: 'Bonebreaker',     lvl: 18, req: { attr: { vigor: 8, edge: 8 } }, desc: 'Every melee hit can roll a critical.',                 mods: { flags: { slayer: true } } },
   { id: 'betterccrit', name: 'Killing Angle', lvl: 9, req: { attr: { insight: 6, serendipity: 6 } }, desc: 'Criticals do 50% more.',                      mods: { mult: { critDmg: 1.5 } } },
-  { id: 'actionboy',   name: 'Quickstep',       lvl: 12, req: { attr: { edge: 5 } },           desc: '+1 Action Point.',                                     mods: { derived: { ap: 1 } }, ranks: 3 },
+  { id: 'actionboy',   name: 'Quickstep',       lvl: 12, req: { attr: { edge: 5 } },           desc: `+1 ${AP_NAME_ONE}.`,                                   mods: { derived: { ap: 1 } }, ranks: 3 },
   { id: 'toughness',   name: 'Scar Tissue',     lvl: 3,  req: { attr: { resolve: 6, serendipity: 6 } }, desc: '+10% resistance to every damage type.',       mods: { derived: { drAll: 10 } }, ranks: 3 },
   { id: 'medic',       name: 'Field Surgeon',   lvl: 12, req: { skill: { fieldmed: 75, surgery: 50 } }, desc: 'Medicine restores 30% more and never fails.',  mods: { mult: { healItem: 1.3 }, flags: { noHealFail: true } } },
   { id: 'mrfixit',     name: 'Scrapwright',     lvl: 12, req: { skill: { tinkering: 75, technics: 75 } }, desc: 'Repair and Technics succeed on the low roll.', mods: { flags: { fixit: true } } },
@@ -54469,7 +54514,7 @@ function xpForLevel(n) { return n <= 1 ? 0 : ((n - 1) * n * 500) / 2; }
 function levelForXp(xp) { let n = 1; while (xpForLevel(n + 1) <= xp) n += 1; return n; }
 
 
-  Object.assign(__M, { ATTRIBUTES, ATTR_IDS, ATTR_MIN, ATTR_MAX, CHARGEN_POOL, SKILL_GROUPS, AP_ENERGY, SKILLS, SKILL_IDS, SKILL_MAX, TAG_SKILL_COUNT, TAG_SKILL_BONUS, TRAITS, MAX_TRAITS, PERKS, PERK_LEVEL_INTERVAL, AMMO, WEAPONS, WEAPON_IDS, ARMORS, CONSUMABLES, MISC, ALL_ITEMS, itemDef, CREATURES, CREATURE_IDS, FACTIONS, REP_TITLES, repTitle, DMG_TYPES, weaponDamageType, xpForLevel, levelForXp });
+  Object.assign(__M, { SNEAK_DMG_MULT, SNEAK_CRIT_BONUS, AP_NAME, AP_NAME_ONE, AP_ABBR, ATTRIBUTES, ATTR_IDS, ATTR_MIN, ATTR_MAX, CHARGEN_POOL, SKILL_GROUPS, AP_ENERGY, SKILLS, SKILL_IDS, SKILL_MAX, TAG_SKILL_COUNT, TAG_SKILL_BONUS, TRAITS, MAX_TRAITS, PERKS, PERK_LEVEL_INTERVAL, AMMO, WEAPONS, WEAPON_IDS, ARMORS, CONSUMABLES, MISC, ALL_ITEMS, itemDef, CREATURES, CREATURE_IDS, FACTIONS, REP_TITLES, repTitle, DMG_TYPES, weaponDamageType, xpForLevel, levelForXp });
 })();
 // ======================================================================
 // js/char.js
@@ -55175,9 +55220,9 @@ class Character {
     }
   }
 
-  // Action Points are the Attack Focus pool. A default sheet carries 7, which
+  // Adrenal Points are the Attack Focus pool. A default sheet carries 7, which
   // is the flat 100 this used to return — so nothing changes for an ordinary
-  // character, but every Action Point modifier in the game now moves a real
+  // character, but every Adrenal Point modifier in the game now moves a real
   // number instead of a label on the character sheet.
   maxEnergy() { return Math.max(2, this.maxAp()) * AP_ENERGY; }
 
@@ -65363,7 +65408,23 @@ function rollOption(ctx, opt) {
 
 
 const { CREATURES, WEAPONS, weaponDamageType, itemDef } = __M;
+const { SNEAK_DMG_MULT } = __M;
 const { buildCreatureModel, buildNpcModel } = __M;
+
+// Prowl, split into the two halves of its range.
+//
+// Every detection rule below used to read `min(1, prowl / 100)`, so the entire
+// top half of the skill bought nothing at all: a 200 Prowl hid exactly as well
+// as a 100 did, and SKILL_MAX is 200. `pf` is the first hundred points and is
+// unchanged, so nothing that was tuned against it moves. `pf2` is what the
+// second hundred is worth, and it is what deep investment now pays for.
+const prowlSplit = (p) => {
+  const v = Math.max(0, p || 0);
+  return {
+    pf: Math.min(1, v / 100),
+    pf2: Math.max(0, Math.min(1, (v - 100) / 100)),
+  };
+};
 const { moveCircle } = __M;
 const { audio } = __M;
 const { NPCS } = __M;
@@ -65424,6 +65485,10 @@ class Actor {
     this.stateT = 0;
     this.attackCd = 0;
     this.alertT = 0;
+    // Seconds of "somebody told me where they are". Distinct from alertT,
+    // which is only ever set by sight or by being hurt: this is a tip, it is
+    // followed without line of sight, and it burns down on the same clock.
+    this.huntT = 0;
     this.phase = Math.random() * 10;
     this.home = new THREE.Vector3(x, 0, z);
     this.wander = new THREE.Vector3(x, 0, z);
@@ -65469,12 +65534,12 @@ class Actor {
     if (ctx.playerSneaking) {
       // Crouching is the single biggest thing a player can do about being
       // seen, and at range it should be close to decisive. Even an untrained
-      // sneak more than halves how far off something picks them up, and a
-      // maxed Prowl cuts it to a twelfth — meaning a typical hunter with a
-      // 30m aggro radius only notices a crouched expert once they are inside
-      // about two and a half metres.
-      const prowlF = Math.min(1, (ctx.playerProwl || 0) / 100);
-      rangeMult *= Math.max(0.08, 0.42 - prowlF * 0.34);
+      // sneak more than halves how far off something picks them up; at 100
+      // Prowl it is cut to a twelfth — a typical hunter with a 30m aggro
+      // radius only notices a crouched expert inside about two and a half
+      // metres — and the second hundred points halve it again.
+      const { pf, pf2 } = prowlSplit(ctx.playerProwl);
+      rangeMult *= Math.max(0.04, (0.42 - pf * 0.34) * (1 - pf2 * 0.5));
     }
     // The Invisitron is not a range penalty, it is actual invisibility: past
     // literal arm's reach nothing can see the player at all, so hunters lose
@@ -65496,13 +65561,16 @@ class Actor {
     // both scaling with Prowl. It is still not invisibility: step into the
     // front arc, or stand up, and the normal checks below apply again.
     if (ctx.playerSneaking) {
-      const prowlF = Math.min(1, (ctx.playerProwl || 0) / 100);
-      // Behind the shoulders: hidden outright once Prowl is respectable.
-      if (dot < -0.15) return false;
+      const { pf, pf2 } = prowlSplit(ctx.playerProwl);
+      // Behind the shoulders: hidden outright once Prowl is respectable, and
+      // the arc keeps opening past 100 until it is the whole half-circle
+      // behind the target.
+      if (dot < -0.15 + pf2 * 0.15) return false;
       // Peripheral vision narrows as Prowl rises, and closes in further the
-      // further away the player is.
-      const periph = -0.15 + (1 - prowlF) * 0.5;
-      if (dot < periph && d > 3 + prowlF * 4) return false;
+      // further away the player is. Past 100 the front cone tightens too, so
+      // a master can cross well off a hunter's axis and go unseen.
+      const periph = -0.15 + (1 - pf) * 0.5 + pf2 * 0.3;
+      if (dot < periph && d > 3 + pf * 4 + pf2 * 4) return false;
     }
     if (this.state === 'idle' && dot < 0.15 && d > 6) return false;
     return !ctx.blocked(this.pos.x, this.pos.y + this.eyeHeight * 0.8, this.pos.z, target.x, target.y + 1.2, target.z);
@@ -65551,15 +65619,30 @@ class Actor {
       const sees = this.canSee(ctx, this._tgtPos);
       if (sees) {
         this.alertT = 2.5;
+        this.huntT = 0;               // they have eyes on you; the tip is spent
         this.lastSeen = { x: this._tgtPos.x, z: this._tgtPos.z };
       } else {
         // Dropping into a crouch and staying out of sight breaks contact
         // faster, and a high Prowl breaks it faster still — so the skill
         // helps you disengage, not just avoid being spotted in the first
         // place.
-        const prowlF = Math.min(1, (ctx.playerProwl || 0) / 100);
-        const sneakForget = ctx.playerSneaking ? 1.6 + prowlF * 1.4 : 1;
-        this.alertT -= dt * (ctx.forgetRate || 1) * sneakForget;
+        const { pf, pf2 } = prowlSplit(ctx.playerProwl);
+        const sneakForget = ctx.playerSneaking ? 1.6 + pf * 1.4 + pf2 : 1;
+        const forget = dt * (ctx.forgetRate || 1) * sneakForget;
+        if ((this.huntT ?? 0) > 0) {
+          // Told where the player is rather than seeing them: they come for
+          // the live position, through walls and around corners, for as long
+          // as the tip holds. It burns down on exactly the clock breaking line
+          // of sight uses, so crouching, Prowl and Shade shake a revealed
+          // pursuit the same way they shake a visual one — a maxed prowler
+          // going to ground loses them in under a second, a loud one is
+          // followed for six.
+          this.huntT -= forget;
+          this.alertT = Math.max(this.alertT, 1.5);
+          this.lastSeen = { x: this._tgtPos.x, z: this._tgtPos.z };
+        } else {
+          this.alertT -= forget;
+        }
       }
 
       if (this.state === 'idle' && (sees || this.hurtRecently)) {
@@ -66040,6 +66123,13 @@ class Actor {
     // it says on it.
     const outMul = __M.outgoingMult ? __M.outgoingMult() : 1;
     if (outMul !== 1) dealt = Math.max(1, Math.round(dealt * outMul));
+    // A registered sneak attack doubles, and doubles here — after armour — for
+    // exactly the reason the multiplier above does. Doubling the raw figure and
+    // then subtracting a damage threshold from it is not twice the damage: it
+    // is more than twice against a soft target and less than twice against a
+    // plated one. Applied to the finished number, "double" means double
+    // whatever it lands on, which is what the rule says on the tin.
+    if (opts.sneak) dealt = Math.max(1, Math.round(dealt * SNEAK_DMG_MULT));
     this.hp -= dealt;
     this.hurtRecently = 1.5;
     if (this.state === 'idle' || this.state === 'dormant') { this.state = 'alert'; this.stateT = 0; }
@@ -66249,7 +66339,13 @@ class NpcActor {
       ctx.essentialSpared?.(this);
       return 0;
     }
-    const dealt = Math.max(1, Math.round(amount));
+    let dealt = Math.max(1, Math.round(amount));
+    if (opts.sneak) dealt = Math.max(1, Math.round(dealt * SNEAK_DMG_MULT));
+    // NPCs carry no combat AI and therefore no awareness model at all, so
+    // without this every shot at one would register as a sneak attack forever.
+    // They get the one free pass the fiction actually supports: the first hit
+    // genuinely is unseen, and after that they are simply being shot at.
+    this._everHit = true;
     this.hp -= dealt;
     ctx.bloodBurst?.(this.pos, this.def);
     ctx.hitMarker?.(opts.critical);
@@ -66963,6 +67059,7 @@ class Player {
     this.pitch = 0;
     this.onGround = true;
     this.crouch = false;
+    this.topSpeed = 4.35;
     this.sprint = false;
     this.eye = EYE_STAND;
 
@@ -67194,6 +67291,25 @@ class Player {
     this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch));
   }
 
+  // Sneaking is a stance, not a speed limit.
+  //
+  // The detection code used to ask whether the player was crouched and moving
+  // slower than a flat 2 m/s. A crouch walk is 4.35 x 0.48 = 2.09 m/s before
+  // Fleet Step touches it, so the test failed the instant the player actually
+  // crept anywhere — the one manoeuvre the whole system exists for. Standing
+  // perfectly still in a crouch was the only way to count as sneaking, which
+  // is why creeping up on something never worked however high Prowl was.
+  //
+  // Crouched and not sprinting is the rule now. The ceiling is the player's
+  // own crouch top speed with a little headroom, so being shoved by a blast or
+  // otherwise carried faster than a crouch allows still drops the bonus, and
+  // Fleet Step's extra legs no longer cost the player their cover.
+  isSneaking() {
+    if (!this.crouch || this.sprint) return false;
+    const planar = Math.hypot(this.vel.x, this.vel.z);
+    return planar <= (this.topSpeed || 2.1) * 1.15 + 0.2;
+  }
+
   // -- per-frame -----------------------------------------------------------
   update(dt, input) {
     const w = this.weapon();
@@ -67210,11 +67326,14 @@ class Player {
     // than only the flat base and leaving a crouch-walk oddly untouched. Head
     // bob and the sprint camera drop key off this same number, so the stride
     // keeps up with the legs instead of skating.
-    // Fleet Step's Action Points were "for movement only" and were spent on
+    // Fleet Step's Adrenal Points were "for movement only" and were spent on
     // nothing; they are legs now.
     const footMul = 1 + (mods.derived.moveAp || 0) * 0.06;
     const cheatSpeed = (__M.cheats && __M.cheats().doubleSpeed) ? 2 : 1;
     const speed = speedBase * sprintMul * crouchMul * adsMul * legMul * footMul * cheatSpeed;
+    // Published for isSneaking(): the fastest this player's own legs can carry
+    // them in the stance they are standing in right now.
+    this.topSpeed = speed;
 
     const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
@@ -67521,6 +67640,15 @@ class Player {
     const pellets = w.pellets || 1;
     for (let i = 0; i < pellets; i += 1) this.shootRay(w);
 
+    // The report goes out *after* the rounds are resolved, and this ordering is
+    // load-bearing rather than cosmetic. makeNoise alerts everything in
+    // earshot, and the target is always in earshot of the gun aimed at it — so
+    // running it first meant a shot's own noise disqualified that same shot
+    // from being a sneak attack. Every gun sneak attack in the game silently
+    // stopped working the moment noise was added. The bullet and the bang
+    // leave together; the bullet gets there first.
+    this.game.makeNoise(this.pos, this.game.shotNoiseRadius(w));
+
     // Auto-reload the moment a shot leaves the magazine empty, rather than
     // waiting for the next trigger pull to discover it's dry — matters most
     // for single-shot heavies like the Bunker-Buster, where that would
@@ -67700,7 +67828,7 @@ const AF_PARTS = {
 // translate; story text, dialogue and item names stay English, since
 // translating the prose is a different project from translating the chrome.
 const LANGS = {
-  en: { resume: 'Resume', character: 'Character', inventory: 'Inventory', objectives: 'Objectives', worldmap: 'World map', savegame: 'Save game', loadgame: 'Load game', options: 'Options', paused: 'Paused', autosave: 'Autosave', language: 'Language', head: 'Head', torso: 'Torso', legs: 'Legs', attack: 'Attack', cancel: 'Cancel', track: 'TRACK', tracked: 'TRACKED', complete: 'COMPLETE', main: 'MAIN', side: 'SIDE', nothingrec: 'Nothing recorded yet.', nosaves: 'No saves found.', nosavesyet: 'No saves yet — use "New save slot" below.', savesub: 'Overwrite an existing slot, or start a new one.', loadsub: 'Choose a save to resume.', newslot: 'New save slot', del: 'Delete', saved: 'Progress saved', loaded: 'Game loaded', autosaved: 'Autosaved', notarget: 'No target in range', noenergy: 'Not enough energy', weaponempty: 'Weapon empty', record: 'Personnel Record', corestats: 'Core Stats', skills: 'Skills', traits: 'Traits', standing: 'Standing', biomarkers: 'BIOMARKERS', move: 'Move', look: 'Look', fire: 'Fire', ads: 'Aim down sights', reload: 'Reload', swapweapon: 'Swap weapon', selectweapon: 'Select weapon', sprint: 'Sprint', crouch: 'Crouch', jump: 'Jump', interact: 'Interact', usemed: 'Use Trauma Kit', repair: 'Field repair', flashlight: 'Flashlight', attackfocus: 'Attack Focus', pause: 'Pause', talkto: 'Talk to', open: 'Open', pick: 'Pick', use: 'Use', empty: 'empty', takeration: 'Take a ration', enterring: 'Enter the Ring', level: 'Level', experience: 'Experience', health: 'Health', objectivesdone: 'Objectives completed', trade: 'Trade', yourtokens: 'Your tokens' },
+  en: { resume: 'Resume', character: 'Character', inventory: 'Inventory', objectives: 'Objectives', worldmap: 'World map', savegame: 'Save game', loadgame: 'Load game', options: 'Options', paused: 'Paused', autosave: 'Autosave', language: 'Language', head: 'Head', torso: 'Torso', legs: 'Legs', attack: 'Attack', cancel: 'Cancel', track: 'TRACK', tracked: 'TRACKED', complete: 'COMPLETE', main: 'MAIN', side: 'SIDE', nothingrec: 'Nothing recorded yet.', nosaves: 'No saves found.', nosavesyet: 'No saves yet — use "New save slot" below.', savesub: 'Overwrite an existing slot, or start a new one.', loadsub: 'Choose a save to resume.', newslot: 'New save slot', del: 'Delete', saved: 'Progress saved', loaded: 'Game loaded', autosaved: 'Autosaved', notarget: 'No target in range', noenergy: `Not enough ${__M.AP_NAME}`, weaponempty: 'Weapon empty', record: 'Personnel Record', corestats: 'Core Stats', skills: 'Skills', traits: 'Traits', standing: 'Standing', biomarkers: 'BIOMARKERS', move: 'Move', look: 'Look', fire: 'Fire', ads: 'Aim down sights', reload: 'Reload', swapweapon: 'Swap weapon', selectweapon: 'Select weapon', sprint: 'Sprint', crouch: 'Crouch', jump: 'Jump', interact: 'Interact', usemed: 'Use Trauma Kit', repair: 'Field repair', flashlight: 'Flashlight', attackfocus: 'Attack Focus', pause: 'Pause', talkto: 'Talk to', open: 'Open', pick: 'Pick', use: 'Use', empty: 'empty', takeration: 'Take a ration', enterring: 'Enter the Ring', level: 'Level', experience: 'Experience', health: 'Health', objectivesdone: 'Objectives completed', trade: 'Trade', yourtokens: 'Your tokens' },
 };
 // Story text passes straight through. Kept as a single call site so the
 // dialogue renderer does not need touching if this ever changes.
@@ -67768,6 +67896,11 @@ class UI {
     this.enFill = el('i');
     this.enBar.appendChild(this.enFill);
     vitals.appendChild(this.enBar);
+    // The pool had a bar and no number, so there was no way to tell how many
+    // aimed shots were left in it without counting. Shown in whole points,
+    // which is the unit everything that modifies it is denominated in.
+    this.enText = el('div', 'gauge-label ap');
+    vitals.appendChild(this.enText);
     this.statusRow = el('div', 'status-row');
     vitals.appendChild(this.statusRow);
     h.appendChild(vitals);
@@ -67876,6 +68009,10 @@ class UI {
     this.hpText.textContent = `${Math.max(0, Math.ceil(c.hp))} / ${c.maxHp()}`;
     if (this.gaugeCap && this.gaugeCap.textContent !== T('biomarkers')) this.gaugeCap.textContent = T('biomarkers');
     this.enFill.style.width = `${Math.max(0, (c.energy ?? 100) / c.maxEnergy()) * 100}%`;
+    if (this.enText) {
+      const apNow = Math.floor(Math.max(0, c.energy ?? 100) / __M.AP_ENERGY);
+      this.enText.textContent = `${__M.AP_ABBR} ${Math.min(apNow, c.maxAp())} / ${c.maxAp()}`;
+    }
     // The torch button is a toggle, so it shows the flashlight's actual state
     // rather than lighting up only while a thumb is on it.
     if (this.tTorch) this.tTorch.dataset.on = p.flashlightOn ? '1' : '0';
@@ -68263,16 +68400,24 @@ class UI {
 
   // What the aimed shot did, said plainly and briefly: whether the critical
   // landed, against the chance the player was quoted before they took it.
-  focusResult({ critical, damage, chance, part, target, killed }) {
+  focusResult({ critical, damage, chance, part, target, killed, missed }) {
     const host = this.hud || document.body;
     if (this._focusRes) this._focusRes.remove();
-    const box = el('div', `focus-result${critical ? ' crit' : ''}`);
-    box.appendChild(el('b', null, critical ? 'CRITICAL HIT' : 'HIT'));
-    box.appendChild(el('i', null, `${target} · ${part} · ${damage} damage`));
-    box.appendChild(el('span', null, critical
-      ? `Critical landed on a ${chance}% chance`
-      : `No critical — ${chance}% chance`));
-    if (killed) box.appendChild(el('em', null, 'Target down'));
+    // A miss gets its own card. It used to fall through the hit path and
+    // print "HIT — 0 damage", which reads as a bug rather than as a roll that
+    // did not come off. On a miss `chance` is the chance to hit, which is the
+    // number the player was actually shown before they committed.
+    const box = el('div', `focus-result${missed ? ' miss' : critical ? ' crit' : ''}`);
+    box.appendChild(el('b', null, missed ? 'MISS' : critical ? 'CRITICAL HIT' : 'HIT'));
+    box.appendChild(el('i', null, missed
+      ? `${target} · ${part} · no damage`
+      : `${target} · ${part} · ${damage} damage`));
+    box.appendChild(el('span', null, missed
+      ? `The shot went wide — ${chance}% to hit`
+      : critical
+        ? `Critical landed on a ${chance}% chance`
+        : `No critical — ${chance}% chance`));
+    if (killed && !missed) box.appendChild(el('em', null, 'Target down'));
     host.appendChild(box);
     this._focusRes = box;
     // Cleared on a timer rather than on the next shot, so a miss does not
@@ -68286,6 +68431,16 @@ class UI {
   damageFlash(frac) {
     this.vignetteT = 0.5;
     this.vignetteAmt = Math.min(0.95, 0.25 + frac * 2.2);
+  }
+
+  // Says the doubling happened. Throttled rather than fired per hit, because
+  // a shotgun, a burst or a blast all land several times in the same instant
+  // and three identical banners read as a stutter, not as emphasis.
+  sneakHit(critical) {
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (this._sneakT && now - this._sneakT < 700) return;
+    this._sneakT = now;
+    this.notify(critical ? 'Sneak attack — critical! ×2 damage' : 'Sneak attack! ×2 damage', 'good');
   }
 
   hitMarker(crit) {
@@ -68531,7 +68686,7 @@ class UI {
       derived.innerHTML = '';
       const rows = [
         ['Health', 20 + 2 * a.resolve + a.vigor],
-        ['Action Points', 5 + Math.floor(a.edge / 2)],
+        [__M.AP_NAME, 5 + Math.floor(a.edge / 2)],
         ['Carry Limit', `${25 + a.vigor * 12} kg`],
         ['Skill points / level', 5 + 2 * a.understanding],
         ['Critical chance', `${Math.floor(a.serendipity / 2)}%`],
@@ -68900,7 +69055,7 @@ class UI {
       };
       cheat('godMode', 'Infinite health');
       cheat('infiniteAmmo', 'Bottomless clip (infinite ammo)');
-      cheat('infiniteAp', 'Infinite attack points');
+      cheat('infiniteAp', `Infinite ${__M.AP_NAME} (never spent, pool stays full)`);
       cheat('oneHitKills', 'One-hit kills');
       cheat('doubleBothWays', 'Double damage, both directions');
       cheat('enemiesTakeDouble', 'Enemies take double damage');
@@ -68919,6 +69074,19 @@ class UI {
         this.notify('+1,000,000 ration tokens', 'good');
       };
       wrap.appendChild(money);
+
+      // A one-off top-up of the Attack Focus pool, matching the ammo button
+      // below: fills it now and leaves nothing running, for when you want one
+      // more aimed shot without playing the rest of the fight cheated.
+      const maxAp = el('button', null, `Max ${__M.AP_NAME}`);
+      maxAp.onclick = () => {
+        const ch = this.game.char;
+        ch.energy = ch.maxEnergy();
+        ch.dirty();
+        audio.play('ui_accept', { bus: 'ui', volume: 0.3 });
+        this.notify(`${__M.AP_NAME} restored — ${ch.maxAp()} / ${ch.maxAp()}`, 'good');
+      };
+      wrap.appendChild(maxAp);
 
       // Another one-off: tops every magazine and every reserve stack in one
       // pass, rather than toggling a state that has to be switched back off.
@@ -69094,7 +69262,7 @@ class UI {
     const rows = [
       [T('level'), `${c.level}`], [T('experience'), `${xpNow} / ${xpNext}`],
       [T('health'), `${Math.ceil(c.hp)} / ${c.maxHp()}`],
-      ['Action Points', `${c.maxAp()}`],
+      [__M.AP_NAME, `${c.maxAp()}`],
       ['Carry', `${fmt(c.carried())} / ${c.carryMax()} kg`],
       ['Initiative', `${c.sequence()}`],
       ['Critical chance', `${c.critChance()}%`],
@@ -69827,6 +69995,11 @@ class UI {
     btn('inv', 'BAG', () => g.togglePanel('inventory'));
     btn('menu', '≡', () => g.togglePanel('pause'));
     this.tSwap = btn('swap', 'SWAP', () => g.cycleWeapon());
+    // Attack Focus. The keyboard has had C since the system shipped and a
+    // phone had nothing at all, which made the entire APIS layer desktop-only.
+    // Same toggle behind it, so it refuses for the same reasons and says so in
+    // the same words.
+    this.tFocus = btn('tfocus', 'FOCUS', () => g.toggleAttackFocus());
 
     this.parkSticks();
   }
@@ -69856,6 +70029,25 @@ class UI {
     this.parkStick(this.stickR, 'r');
   }
 
+  // The pads and face buttons come off the screen while the Attack Focus
+  // panel is up, and every held input is released on the way in — a thumb
+  // still resting on FIRE when the panel appeared otherwise stayed pressed
+  // through the whole cinematic and fired the instant control came back.
+  setTouchFocusMode(on) {
+    if (!this.touchHost) return;
+    this.touchHost.dataset.focus = on ? '1' : '0';
+    if (on) {
+      this.touchHost.querySelectorAll('.tbtn').forEach((b) => { b.dataset.on = '0'; });
+      const i = this.game.input;
+      i.fire = false; i.ads = false; i.jump = false; i.sprint = false;
+      i.move.set(0, 0); i.lookDelta.set(0, 0);
+    }
+    // Only meaningful while the layer has layout — the docks have no box to
+    // measure when #touch is display:none, and setTouchVisible re-parks on
+    // the way back in anyway.
+    if (this.touchHost.dataset.on === '1') this.parkSticks();
+  }
+
   setTouchVisible(on) {
     this.touchHost.dataset.on = on ? '1' : '0';
     // Their docks have no layout while the host is hidden, so park them again
@@ -69881,6 +70073,7 @@ class UI {
 
 const { Character, skillCheck } = __M;
 const { WEAPONS, AMMO, CREATURES, itemDef, weaponDamageType, xpForLevel } = __M;
+const { SNEAK_CRIT_BONUS, SKILL_MAX } = __M;
 const { LOCATIONS, MAP_NODES, travelHours } = __M;
 const { Actor, NpcActor, spawnFromTable, spawnNpcs } = __M;
 const { Player } = __M;
@@ -69901,6 +70094,40 @@ const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const AUTOSAVE_SLOTS = 6;    // rotating ring: autosave_0 … autosave_5
 const AUTOSAVE_PERIOD = 120; // seconds of real time between rolls
 const AUTOSAVE_GRACE = 60;   // longest the roll will wait out a firefight
+
+// -- Noise ------------------------------------------------------------------
+// How far the loud things carry, in metres, for a character with no Prowl at
+// all. Everything hostile inside the radius turns and walks to the spot — to
+// the noise, not to the player, because a bang tells you where a bang was and
+// nothing else. Whether they find anything there when they arrive is the
+// player's problem.
+//
+// Melee is deliberately absent from this list. A swing makes no noise at any
+// skill level, which is the whole reason to carry a knife, and the only thing
+// a quiet kill has to worry about is NOISE_KILL below — how far the body and
+// whatever it said on the way down carried.
+const NOISE_SHOT = 30;        // a gunshot
+const NOISE_BLAST = 45;       // an explosion — the loudest thing in the game
+const NOISE_KILL = 12;        // something dying: the cry, and the fall
+const NOISE_ALERT = 2.5;      // seconds of "go and look" a noise is worth
+// Prowl's share. At 0 a noise carries its full radius; at SKILL_MAX it carries
+// NOISE_MIN of it. The same skill decides whether they see you, so a stealth
+// character is quiet in both senses rather than only one — and a loud one can
+// no longer clear a room by shooting the first sentry in a corridor full of
+// them and having nobody else react.
+const NOISE_MIN = 0.25;
+const NOISE_PROWL = 0.75;
+// A sneak attack made with anything that has a report behind it does more than
+// make a noise: it tells everyone in earshot where the player is standing, and
+// they come for that rather than for the bang. Melee is the sole exception.
+//
+// REVEAL_RANGE is the share of the noise radius that learns the position as
+// well as hearing the shot. At 1 everything that hears it knows; drop it below
+// 1 to open a band that hears the shot, walks to it, and has to find you the
+// hard way from there.
+const REVEAL_RANGE = 1;
+const REVEAL_ALERT = 3;       // seconds of alert the reveal is worth outright
+const REVEAL_HOLD = 6;        // seconds they hold the player's live position
 
 // -- Attack Focus / APIS tuning ---------------------------------------------
 const AF_MAX_RANGE = 34;      // farthest a target can be to enter Attack Focus
@@ -70165,7 +70392,7 @@ class Game {
     // are the expensive part and are meant to outlive locations.
     this.resetFluidPools();
     this.actors = []; this.projectiles = []; this.effects = []; this.bloodDecals = [];
-    if (this.attackFocus) { this.ui.closeAttackFocus(); this.attackFocus = null; }
+    if (this.attackFocus) { this.ui.closeAttackFocus(); this.attackFocus = null; this.ui.setTouchFocusMode(false); }
     this.clearHighlight();
 
     const built = prebuilt || def.build();
@@ -70573,7 +70800,7 @@ class Game {
   // =========================================================================
   // Combat
   // =========================================================================
-  rollDamage(w, char, { head = false, distance = 0, target = null, focus = false } = {}) {
+  rollDamage(w, char, { head = false, distance = 0, target = null, focus = false, sneak = null } = {}) {
     const [lo, hi] = w.dmg;
     let dmg = (lo + Math.random() * (hi - lo)) * (__M.diff ? __M.diff().outgoing : 1);
     const ammo = w.ammo ? AMMO[w.ammo] : null;
@@ -70593,11 +70820,184 @@ class Game {
     if (dtype === 'fire') dmg *= mods.mult.fireDmg ?? 1;
     if (w.blast) dmg *= mods.mult.blastDmg ?? 1;
 
-    const critChance = this.critChanceFor(w, char, { head, target, focus });
+    // Resolved once and reported back rather than recomputed by the caller:
+    // the doubling is applied inside takeDamage, past armour, and this is how
+    // the caller knows to ask for it. It must be read *before* the hit lands,
+    // because landing it is what makes the target aware.
+    const sneaking = sneak === null ? this.sneakAttackOn(target) : !!sneak;
+    const critChance = this.critChanceFor(w, char, { head, target, focus, sneak: sneaking });
     const critical = char.flag('slayer') || Math.random() * 100 < critChance;
     if (critical) dmg *= char.critMultiplier();
     if (head) dmg *= char.hasFlag('gameBeaten') ? 2.5 : 2;
-    return { dmg: Math.max(1, Math.round(dmg)), critical };
+    return { dmg: Math.max(1, Math.round(dmg)), critical, sneak: sneaking };
+  }
+
+  // What simply pulling the trigger would have put into a target: the top of
+  // this weapon's damage band carrying every multiplier an ordinary hit gets
+  // — difficulty, ammunition, melee bonuses, the character's own outgoing
+  // multiplier, range falloff, damage-type and blast mods, and the head
+  // bonus if this is a head shot — with no critical rolled in.
+  //
+  // Computed rather than rolled, so the floor it provides does not itself
+  // wobble from shot to shot. It is a pre-armour figure, and that is enough:
+  // Attack Focus ignores the damage threshold outright and cuts resistance to
+  // a quarter, so a Focus hit starting from this number can only ever land
+  // harder than a normal one starting from the same place.
+  normalHitReference(w, char, { head = false, distance = 0 } = {}) {
+    const [, hi] = w.dmg;
+    let dmg = hi * (__M.diff ? __M.diff().outgoing : 1);
+    const ammo = w.ammo ? AMMO[w.ammo] : null;
+    if (ammo?.dmgMult) dmg *= ammo.dmgMult;
+    const mods = char.mods();
+    if (w.cls === 'melee') {
+      dmg += (mods.derived.meleeDmg || 0) + Math.floor(char.attr('vigor') / 2);
+      if (w.skill === 'brawling') dmg += mods.derived.unarmedDmg || 0;
+    }
+    dmg *= char.outgoingMultiplier();
+    const eff = (w.range ?? 20) * (0.8 + (char.attr('insight') + (mods.derived.rangeIns || 0)) * 0.05);
+    if (distance > eff) dmg *= Math.max(0.35, 1 - (distance - eff) / (eff * 1.4));
+    const dtype = weaponDamageType(w);
+    if (dtype === 'fire') dmg *= mods.mult.fireDmg ?? 1;
+    if (w.blast) dmg *= mods.mult.blastDmg ?? 1;
+    if (head) dmg *= char.hasFlag('gameBeaten') ? 2.5 : 2;
+    return Math.max(1, Math.round(dmg));
+  }
+
+  // The fraction of a noise's base radius this character actually makes.
+  noiseMult() {
+    const prowl = Math.max(0, this.char.skill('prowl'));
+    return Math.max(NOISE_MIN, 1 - (prowl / SKILL_MAX) * NOISE_PROWL);
+  }
+
+  // What a given weapon's report is worth. Energy weapons have no powder
+  // behind them and carry about half as far; a belt-fed gun or anything with
+  // a blast attached carries further than a sidearm. Melee and thrown weapons
+  // make no report at all — a thrown weapon is silent until it goes off, and
+  // the explosion has its own, much larger, radius.
+  shotNoiseRadius(w) {
+    if (!w || w.cls === 'melee' || w.cls === 'thrown') return 0;
+    let r = NOISE_SHOT;
+    if (w.energy) r *= 0.55;
+    if (w.cls === 'lmg' || w.blast) r *= 1.35;
+    else if (w.cls === 'shotgun') r *= 1.15;
+    return r * this.noiseMult();
+  }
+
+  // Something loud happened at `pos`. Anything hostile inside `radius` that
+  // was not already onto the player turns and goes to look.
+  //
+  // Deliberately not the same as being seen: a noise writes the noise's
+  // position into lastSeen, never the player's, so what the AI does with it is
+  // walk over and search. It also does not touch the global alarm, so a shot
+  // in one corner of a map no longer has to mean the whole location knows.
+  //
+  // Anything already hunting keeps the position it was hunting — a fresh bang
+  // must not be able to pull a squad off your actual trail and hand you a free
+  // escape. They only take the new spot if they had nothing better.
+  makeNoise(pos, radius, { alert = NOISE_ALERT } = {}) {
+    if (!(radius > 0) || !this.actors) return 0;
+    const r2 = radius * radius;
+    let roused = 0;
+    for (const a of this.actors) {
+      // Passive wildlife is skipped: behavePassive never reads alertT, so
+      // rousing a brahmin does nothing except inflate the count in the
+      // notification below.
+      if (a.dead || a.isNpc || a.companion || a.passive || !a.hostile) continue;
+      const dx = a.pos.x - pos.x, dz = a.pos.z - pos.z;
+      if (dx * dx + dz * dz > r2) continue;
+      const idle = a.state === 'idle' || a.state === 'dormant';
+      if (idle || (a.alertT ?? 0) <= 0) a.lastSeen = { x: pos.x, z: pos.z };
+      a.alertT = Math.max(a.alertT ?? 0, alert);
+      if (idle) {
+        a.state = 'alert';
+        a.stateT = 0;
+        // creatureVoice gates itself, so a room full of them coming awake at
+        // once is one growl and not twelve.
+        audio.creatureVoice(a.def, 'alert', a.pos);
+        roused += 1;
+      }
+    }
+    if (roused) this.noticedNotice(roused);
+    return roused;
+  }
+
+  // Everything inside `radius` learns where the player actually is, and comes
+  // for it. Stronger than makeNoise in the two ways that matter: the position
+  // written is the player's rather than the noise's, and huntT keeps it
+  // updating, so they track instead of converging on a spot you have already
+  // left.
+  revealPlayer(radius, hold = REVEAL_HOLD) {
+    if (!(radius > 0) || !this.player || !this.actors) return 0;
+    const pos = this.player.pos;
+    const r2 = radius * radius;
+    let n = 0;
+    for (const a of this.actors) {
+      if (a.dead || a.isNpc || a.companion || a.passive || !a.hostile) continue;
+      const dx = a.pos.x - pos.x, dz = a.pos.z - pos.z;
+      if (dx * dx + dz * dz > r2) continue;
+      a.lastSeen = { x: pos.x, z: pos.z };
+      a.alertT = Math.max(a.alertT ?? 0, REVEAL_ALERT);
+      a.huntT = Math.max(a.huntT ?? 0, hold);
+      if (a.state === 'idle' || a.state === 'dormant') {
+        a.state = 'alert';
+        a.stateT = 0;
+        audio.creatureVoice(a.def, 'alert', a.pos);
+      }
+      n += 1;
+    }
+    if (n) this.revealNotice(n);
+    return n;
+  }
+
+  // Bookkeeping for a sneak attack that has just landed: say so, and — unless
+  // it was made with a knife — tell the neighbours.
+  sneakLanded(w, critical, radius = null) {
+    this.ui.sneakHit(critical);
+    // Melee is the exception, and the only one. A knife stays between you and
+    // whatever you put it in. Anything with a report behind it announces not
+    // merely that something happened but where you were standing when it did,
+    // which is the whole trade: the gun opens with double damage and costs you
+    // the room, the knife keeps the room.
+    if (w && w.cls === 'melee') return;
+    const r = radius ?? this.shotNoiseRadius(w);
+    if (r > 0) this.revealPlayer(r * REVEAL_RANGE);
+  }
+
+  revealNotice(n) {
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (this._revealNoticeT && now - this._revealNoticeT < 2500) return;
+    this._revealNoticeT = now;
+    this.ui.notify(n > 1 ? `Position given away — ${n} converging` : 'Position given away', 'bad');
+  }
+
+  // Only fires when something that was genuinely idle has been roused, so it
+  // stays quiet through a firefight where everything is already awake.
+  noticedNotice(n) {
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (this._noiseNoticeT && now - this._noiseNoticeT < 2500) return;
+    this._noiseNoticeT = now;
+    this.ui.notify(n > 1 ? `That was heard — ${n} moving to look` : 'That was heard', 'bad');
+  }
+
+  // Does an attack on this target register as a sneak attack?
+  //
+  // The test is entirely about the target's awareness, not the player's
+  // stance: an opening shot from cover on something that has never seen you
+  // is a sneak attack whether you are crouched or standing. Crouching and
+  // Prowl are what get you into position undetected in the first place —
+  // they decide whether the target is still unaware when you pull, and this
+  // reads the result rather than duplicating the check.
+  //
+  // Self-limiting by construction: takeDamage sets alertT the instant this
+  // lands, so the same target cannot be sneak-attacked twice in a fight.
+  sneakAttackOn(target) {
+    if (!target || target.dead || target.companion) return false;
+    // Nothing with no awareness model gets to be permanently unaware.
+    if (target.isNpc) return !target._everHit;
+    if (target.hurtRecently) return false;
+    if ((target.alertT ?? 0) > 0) return false;
+    if (target.state === 'attack' || target.state === 'alert') return false;
+    return true;
   }
 
   // The chance a shot comes in critical, as a whole percentage.
@@ -70609,13 +71009,18 @@ class Game {
   // has noticed them yet. Everything that moves this number is either a
   // character decision or a thing happening in the world; nothing is random
   // except the roll itself.
-  critChanceFor(w, char, { head = false, target = null, focus = false } = {}) {
+  critChanceFor(w, char, { head = false, target = null, focus = false, sneak = null } = {}) {
     const mods = char.mods();
     let c = char.critChance() + (w.crit || 0);
     if (head) c += 22;                                  // a called shot at the head
     if (mods.flags.sniper && head) c += 20;             // Long Sight
-    // A target that has not seen you yet is not moving away from the shot.
-    if (target && !target.dead && (target.alertT ?? 0) <= 0 && target.state !== 'attack') c += 15;
+    // A target that has not seen you yet is not moving away from the shot, and
+    // you have had all the time in the world to pick the spot. This used to be
+    // a flat +15 read off an inline awareness test that no ordinary shot ever
+    // reached, because hitscan never passed a target in. It is the sneak-attack
+    // bonus now, it is much larger, and every path supplies the target.
+    const sneaking = sneak === null ? this.sneakAttackOn(target) : !!sneak;
+    if (sneaking) c += SNEAK_CRIT_BONUS;
     // A lined-up Attack Focus shot that actually connects is as close to a
     // sure thing as the game offers — the whole point of taking the time.
     if (focus) c += AF_CRIT_BONUS;
@@ -70632,7 +71037,7 @@ class Game {
     if (w.crit) out.push([w.name, w.crit]);
     if (head) out.push(['Called shot', 22]);
     if (mods.flags.sniper && head) out.push(['Long Sight', 20]);
-    if (target && !target.dead && (target.alertT ?? 0) <= 0 && target.state !== 'attack') out.push(['Unaware', 15]);
+    if (this.sneakAttackOn(target)) out.push(['Sneak attack', SNEAK_CRIT_BONUS]);
     if (focus) out.push(['Attack Focus', AF_CRIT_BONUS]);
     return out;
   }
@@ -70657,8 +71062,11 @@ class Game {
 
     for (const c of candidates) {
       if (remaining <= 0) break;
-      const { dmg, critical } = this.rollDamage(w, char, { head: c.head, distance: c.dist });
-      c.a.takeDamage(Math.round(dmg * retention), type, this.actorCtx(), { critical, w, head: c.head });
+      // `target` was never passed here, which is why the unaware bonus above
+      // was dead code on every ordinary shot in the game.
+      const { dmg, critical, sneak } = this.rollDamage(w, char, { head: c.head, distance: c.dist, target: c.a });
+      c.a.takeDamage(Math.round(dmg * retention), type, this.actorCtx(), { critical, w, head: c.head, sneak });
+      if (sneak) this.sneakLanded(w, critical);
       this.spawnImpact(origin.clone().addScaledVector(dir, c.dist), 'flesh');
       if (w.ammo && AMMO[w.ammo]?.poison) c.a.poisonT = 4;
       anyHit = true;
@@ -70685,16 +71093,33 @@ class Game {
       const fwd = V(dir.x, 0, dir.z).normalize();
       if (to.dot(fwd) < 0.35) continue;
       const behind = this.player && V(Math.sin(a.yaw), 0, Math.cos(a.yaw)).dot(to) > 0.4;
-      let { dmg, critical } = this.rollDamage(w, char, { distance: d });
+      let { dmg, critical } = this.rollDamage(w, char, { distance: d, target: a });
+      const sneak = this.sneakAttackOn(a);
+      // Quiet Work stacks on top rather than replacing this: the perk costs
+      // level 18 and 80 in two skills, and a knife in the back from a build
+      // specialised for it should be decisively better than the general rule.
       if (char.flag('silentDeath') && behind && this.player.crouch) { dmg *= 3; critical = true; }
       if (char.flag('slayer')) critical = true;
-      a.takeDamage(dmg, weaponDamageType(w), this.actorCtx(), { critical, w });
+      a.takeDamage(dmg, weaponDamageType(w), this.actorCtx(), { critical, w, sneak });
+      if (sneak) this.sneakLanded(w, critical);   // melee: says so, tells nobody
       if (w.knock && !a.def.knockResist) { a.vel.x += dir.x * 9; a.vel.z += dir.z * 9; }
       hit = true;
       const bladed = /knife|blade/i.test(w.id || '');
       if (bladed && !a.def.robotic) audio._directSquelch?.(a.pos);
       else audio._directThud?.(a.pos);
     }
+  }
+
+  // Everything hostile that was unaware at this instant. Stamped onto a
+  // projectile at the muzzle because a bolt travels at 26 m/s and its own
+  // report does not — across a room the target is alerted by the bang well
+  // before the bolt arrives, so evaluating the sneak attack on impact would
+  // never register one. The shot was unseen when it was taken; that is the
+  // state that counts.
+  muzzleSneakSet() {
+    const set = new WeakSet();
+    for (const a of this.actors) if (this.sneakAttackOn(a)) set.add(a);
+    return set;
   }
 
   spawnProjectile(origin, dir, w, char) {
@@ -70711,6 +71136,7 @@ class Game {
     this.projectiles.push({
       mesh, pos: mesh.position, vel: dir.clone().multiplyScalar(speed),
       w, char, life: 5, gravity: 0, kind: 'bolt',
+      sneakTargets: char === this.char ? this.muzzleSneakSet() : null,
     });
   }
 
@@ -71199,17 +71625,34 @@ class Game {
     const type = w.emp ? 'emp' : weaponDamageType(w);
     const [lo, hi] = w.dmg;
     const maxDmg = hi, minDmg = lo * 0.4;
+    // Only the player gets sneak attacks; a raider's grenade is just a grenade.
+    const sneakBlast = char === this.char;
+    let anySneak = false;
     for (const a of this.actors) {
       if (a.dead) continue;
       const d = Math.hypot(a.pos.x - pos.x, a.pos.z - pos.z, (a.pos.y + a.eyeHeight * 0.5) - pos.y);
       if (d >= w.blast) continue;
       const t = d / w.blast;
       const dmg = Math.round(maxDmg + (minDmg - maxDmg) * t * t);
-      a.takeDamage(dmg, type, this.actorCtx(), { critical: false, w, blast: true });
+      // Ordnance dropped into a camp that never heard it coming counts too.
+      // Blasts never roll critical, so this is the doubling alone — but it can
+      // reach a whole group at once, which is the one place the rule swings
+      // hard. Drop `sneakBlast &&` here to confine sneak attacks to aimed fire.
+      const sneak = sneakBlast && this.sneakAttackOn(a);
+      if (sneak) anySneak = true;
+      a.takeDamage(dmg, type, this.actorCtx(), { critical: false, w, blast: true, sneak });
       if (!a.def.knockResist) {
         const dx = (a.pos.x - pos.x) / (d || 1), dz = (a.pos.z - pos.z) / (d || 1);
         a.vel.x += dx * 10 * (1 - t); a.vel.z += dz * 10 * (1 - t);
       }
+    }
+    // Both after the loop, for the same reason the gunshot report is: an
+    // enemy's ordnance going off is not the player giving themselves away, and
+    // the player's own must not disqualify the blast it belongs to.
+    if (sneakBlast) {
+      const nr = NOISE_BLAST * this.noiseMult();
+      this.makeNoise(pos, nr);
+      if (anySneak) this.sneakLanded(w, false, nr);
     }
     const pd = Math.hypot(this.player.pos.x - pos.x, this.player.pos.z - pos.z, (this.player.pos.y + 1) - pos.y);
     if (pd < w.blast && !(char === this.char && this.char.flag('blastImmune'))) {
@@ -71229,7 +71672,7 @@ class Game {
         actors: this.actors,
         colliders: this.colliders,
         get alarm() { return this.game.alarm; },
-        get playerSneaking() { return this.game.player.crouch && Math.hypot(this.game.player.vel.x, this.game.player.vel.z) < 2; },
+        get playerSneaking() { return this.game.player.isSneaking(); },
         get playerProwl() { return this.game.char.skill('prowl'); },
         get playerInvisible() { return this.game.char.hasEffect('invisitron_active'); },
         // How fast a hunter gives up once it loses sight of you. Shade doubles
@@ -71363,6 +71806,11 @@ class Game {
   }
 
   onKill(actor) {
+    // Something dying is loud whatever killed it. This is the one noise a
+    // knife still makes, and it is why a silent kill taken standing in the
+    // middle of a patrol is not silent enough — the radius is small, but it
+    // is not zero, and it is measured from the body rather than from you.
+    this.makeNoise(actor.pos, NOISE_KILL * this.noiseMult());
     this.spawnBloodPool(actor.pos, actor.def);
     this.hitstopT = Math.max(this.hitstopT, 0.055);
     this.char.kills += 1;
@@ -71403,7 +71851,7 @@ class Game {
   }
 
   // =========================================================================
-  // Attack Focus — the Action Point Integration System (APIS): freeze the
+  // Attack Focus — the Adrenal Point Integration System (APIS): freeze the
   // frame, pick a body
   // part on a nearby target by its hit chance, then watch the shot play out
   // in a slow-motion close-up before control returns.
@@ -71522,6 +71970,7 @@ class Game {
     this.player.fireHeld = false;
     this.attackFocus = { phase: 'target', targets, index: 0, target: targets[0], part: 'torso', t: 0 };
     this.ui.setLockHint(false);
+    this.ui.setTouchFocusMode(true);
     audio.play('ui_accept', { bus: 'ui', volume: 0.3 });
     this.ui.renderAttackFocus(this.attackFocus);
   }
@@ -71543,6 +71992,7 @@ class Game {
     audio.play('ui_deny', { bus: 'ui', volume: 0.3 });
     this.ui.closeAttackFocus();
     this.attackFocus = null;
+    this.ui.setTouchFocusMode(false);
     if (!this.settings.touch) this.requestLock();
   }
 
@@ -71604,25 +72054,48 @@ class Game {
     const target = af.target;
     const partDef = AF_PARTS[af.part];
     if (target.dead) return;
+    // A miss does nothing at all: no damage, no stagger, no impact on the
+    // target. The round and the Adrenal Points are already spent — that is
+    // what the roll was for — and the banner says so plainly. The quoted
+    // number is the chance to hit, not the critical chance, because the hit
+    // is the roll that just failed.
     if (!af.hit) {
-      this.ui.focusResult({ critical: false, damage: 0, chance: af.critChance ?? 0, part: __M.T(af.part), target: target.def?.name || 'Target', missed: true });
+      this.ui.focusResult({
+        critical: false, damage: 0, missed: true,
+        chance: af.chance ?? 0,
+        part: __M.T(af.part), target: target.def?.name || 'Target',
+      });
       this.ui.notify('Miss!', 'bad');
       this.spawnImpact(af.lookPoint.clone(), target.def.robotic ? 'metal' : 'stone');
       return;
     }
-    const { dmg, critical } = this.rollDamage(w, this.char, {
+    const distance = Math.hypot(target.pos.x - p.pos.x, target.pos.z - p.pos.z);
+    const { dmg, critical, sneak } = this.rollDamage(w, this.char, {
       head: !!partDef.crit,
       target,
       focus: true,
-      distance: Math.hypot(target.pos.x - p.pos.x, target.pos.z - p.pos.z),
+      distance,
     });
     let dealt = Math.round(dmg * (partDef.dmgMult ?? 1) * AF_DMG_MULT);
-    // A called shot always means something. Without a floor the whole
-    // manoeuvre is only as good as whatever is in your hands, so a weak or
-    // worn weapon spent the energy for a scratch. Anything aimed this
-    // deliberately takes a real bite out of the target regardless.
-    dealt = Math.max(dealt, Math.round((target.def?.hp || 20) * (partDef.crit ? 0.9 : 0.55)));
-    target.takeDamage(dealt, weaponDamageType(w), this.actorCtx(), { critical, w, head: !!partDef.crit, part: af.part, focus: true });
+    // Three figures, and the shot takes the largest.
+    //
+    // The roll itself, first. Then the manoeuvre's own floor: a called shot
+    // always takes a real bite out of whatever it lands on, so a weak or
+    // badly worn weapon does not spend the energy for a scratch.
+    //
+    // Then the promise the panel is making. Two Adrenal Points, a round and a
+    // hit roll must never come out worse than simply pulling the trigger
+    // would have — and they could, on a bottom-of-the-band roll at the legs,
+    // where the part multiplier is 0.75. `normalHitReference` is what a solid
+    // ordinary hit does at this range; a connecting Focus shot is never
+    // allowed below it.
+    dealt = Math.max(
+      dealt,
+      Math.round((target.def?.hp || 20) * (partDef.crit ? 0.9 : 0.55)),
+      this.normalHitReference(w, this.char, { head: !!partDef.crit, distance }),
+    );
+    target.takeDamage(dealt, weaponDamageType(w), this.actorCtx(), { critical, w, head: !!partDef.crit, part: af.part, focus: true, sneak });
+    if (sneak) this.sneakLanded(w, critical);
     // Whether the critical the panel offered actually landed. The chance is
     // quoted back so the player can see the roll they were given.
     this.ui.focusResult({
@@ -71665,6 +72138,10 @@ class Game {
       if (af.t >= AF_IMPACT_DELAY && !af.resolved) {
         af.resolved = true;
         this.resolveAttackFocusHit(af);
+        // After the hit, never before it — same reason as the hipfire path.
+        // An aimed shot is exactly as loud as a snapped one; slowing time down
+        // to admire it does not make it quieter.
+        this.makeNoise(af.fromPos, this.shotNoiseRadius(this.player.weapon()));
       }
       if (af.t >= AF_IMPACT_DELAY + AF_HOLD) { af.phase = 'out'; af.t = 0; }
       return;
@@ -71682,6 +72159,7 @@ class Game {
         this.attackFocus = null;
         this.clearHighlight();
         this.ui.crosshair.dataset.hidden = '0';
+        this.ui.setTouchFocusMode(false);
         if (!this.settings.touch) this.requestLock();
       }
     }
@@ -71703,7 +72181,7 @@ class Game {
   // =========================================================================
   // Quests
   // =========================================================================
-  // What one aimed shot costs. Two Action Points by default; Fast Hands and
+  // What one aimed shot costs. Two Adrenal Points by default; Fast Hands and
   // anything else carrying `apShot` takes a whole point off, which was the
   // perk's stated effect and previously did nothing whatsoever.
   attackFocusCost() {
@@ -72370,7 +72848,11 @@ class Game {
     this.touchStickR = { id: null, ox: 0, oy: 0, nx: 0, ny: 0 };
     const stickState = { id: null, ox: 0, oy: 0 };
     const surface = document;
-    const onControls = (t) => !!(t.target?.closest?.('#touch, #panels, #boot'));
+    // The Attack Focus panel lives in #hud rather than #panels, so without it
+    // named here a thumb pressing ATTACK also grabbed the look stick and swung
+    // the camera through the shot. It was unreachable while Focus was
+    // keyboard-only; the FOCUS button makes it reachable.
+    const onControls = (t) => !!(t.target?.closest?.('#touch, #panels, #boot, .focus-hud'));
 
     // How far from a parked pad still counts as grabbing that pad rather than
     // planting a new one. Generous, because thumbs are imprecise and landing
@@ -73037,6 +73519,11 @@ class Game {
       this.updateProjectiles(dt);
       this.updateEffects(dt);
 
+      // Infinite Adrenal Points already skipped the spend and the "can you
+      // afford it" check, but the pool itself still sat wherever it had been
+      // left — so the gauge read empty while shots kept working, which looks
+      // like a bug rather than a cheat. Held at full instead.
+      if (__M.cheats().infiniteAp) this.char.energy = this.char.maxEnergy();
       this.char.tick(dt * 12); // 12 in-world seconds per real second
       if (this.ambientRads) {
         const res = 1 - Math.min(0.9, (this.char.mods().derived.radRes || 0) / 100);
@@ -73226,8 +73713,14 @@ class Game {
     }
     if (p.w?.blast) return this.explode(at, p.w, p.char);
     if (hit.actor) {
-      const { dmg, critical } = this.rollDamage(p.w, p.char, { head: hit.head, distance: at.distanceTo(this.player.pos) });
-      hit.actor.takeDamage(dmg, weaponDamageType(p.w), this.actorCtx(), { critical, w: p.w, head: hit.head });
+      const fromPlayer = p.char === this.char;
+      const { dmg, critical, sneak } = this.rollDamage(p.w, p.char, {
+        head: hit.head, distance: at.distanceTo(this.player.pos),
+        target: fromPlayer ? hit.actor : null,
+        sneak: fromPlayer ? !!p.sneakTargets?.has(hit.actor) : false,
+      });
+      hit.actor.takeDamage(dmg, weaponDamageType(p.w), this.actorCtx(), { critical, w: p.w, head: hit.head, sneak });
+      if (sneak) this.sneakLanded(p.w, critical);
       if (p.w.burn) hit.actor.burnT = p.w.burn;
       this.spawnImpact(at, 'flesh');
     } else {
