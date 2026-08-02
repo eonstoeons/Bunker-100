@@ -289,11 +289,8 @@ html, body {
 
 .lock-hint {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  text-align: center; padding: 1.1rem 2rem; pointer-events: none;
-  background: rgba(11, 9, 6, .78); border: var(--edge); border-radius: 2px;
-  opacity: 0; transition: opacity .25s ease;
+  pointer-events: none; opacity: 0;
 }
-.lock-hint[data-on="1"] { opacity: 1; }
 .lock-hint b {
   display: block; font-family: var(--display); font-size: 1.5rem;
   letter-spacing: .24em; text-transform: uppercase; color: var(--sodium);
@@ -497,6 +494,20 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--sodium); ou
 .field input[type="range"] { flex: 1; accent-color: var(--sodium); }
 .field b { min-width: 2.6rem; text-align: right; color: var(--sodium); }
 .field.toggle input { accent-color: var(--sodium); width: 16px; height: 16px; }
+
+.modbox-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: .15rem .8rem; max-height: 220px; overflow-y: auto;
+  border: 1px solid #3A2E1F; border-radius: 2px; padding: .6rem .7rem;
+  background: rgba(0,0,0,.25); margin-bottom: .8rem;
+}
+.modbox-grid label {
+  display: flex; align-items: center; gap: .5rem; font-size: .7rem;
+  padding: .2rem 0; color: var(--bone); cursor: pointer;
+}
+.modbox-grid input { accent-color: var(--sodium); width: 14px; height: 14px; flex: none; }
+.modbox-grid span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modbox-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-bottom: 1rem; }
 
 .menu-list { display: grid; gap: .4rem; margin-bottom: 1.2rem; }
 .menu-item { text-align: left; padding: .6rem .8rem; letter-spacing: .1em; text-transform: uppercase; font-size: .74rem; }
@@ -54196,7 +54207,7 @@ const WEAPONS = Object.freeze({
     spread: 0.6, recoil: 0.5, range: 44, weight: 2.2, value: 1400, crit: 8, ap: 5, adsFov: 42, adsTime: 0.20, reload: 2.0, energy: true,
     builder: 'beampistol', hands: 1, desc: 'Focused-light sidearm. Cauterises as it cuts.' }),
   lancebeam: W({ id: 'lancebeam', name: 'Lance Beam', cls: 'beam', skill: 'beamarms', dmg: [26, 44], ammo: 'cell_m', mag: 12, rpm: 90,
-    spread: 0.3, recoil: 0.8, range: 76, weight: 5.5, value: 5000, crit: 12, ap: 5, adsFov: 24, adsTime: 0.32, reload: 2.8, scope: 1.8, energy: true,
+    spread: 0.3, recoil: 0.8, range: 76, weight: 5.5, value: 5000, crit: 12, ap: 5, adsFov: 34, adsTime: 0.32, reload: 2.8, energy: true,
     builder: 'beamrifle', hands: 2, desc: 'Long-barrel emitter with a ranging prism. Silent, straight, final.' }),
   duelist: W({ id: 'duelist', name: 'Duelist Ion', cls: 'beam', skill: 'beamarms', dmg: [18, 34], ammo: 'cell_s', mag: 10, rpm: 180,
     spread: 1.1, recoil: 1.2, range: 34, weight: 4.2, value: 3600, crit: 8, ap: 5, adsFov: 44, adsTime: 0.26, reload: 2.6, energy: true, projectile: 26,
@@ -54338,6 +54349,16 @@ const MISC = Object.freeze({
   blanks:     { id: 'blanks',     name: 'Barrel Blanks',     weight: 8,    value: 180,  quest: true, desc: 'A stencilled crate of unrifled steel. Somebody in Scrapgate paid for these eleven weeks ago.' },
   vowsigil:   { id: 'vowsigil',   name: 'Iron Vow Sigil',    weight: 0.2,  value: 0,    quest: true, desc: 'A cog cast in blackened steel. Opens doors among the Order.' },
   arbiterlog: { id: 'arbiterlog', name: 'CTI Control Log',   weight: 0.1,  value: 0,    quest: true, desc: 'Chemical Transformation Injection — dosing records and viability figures. Proof the Variants cannot breed. The Arbiter does not know.' },
+
+  // A gadget rather than a consumable: it goes in the equipment slot instead
+  // of being spent on use. `gadget: true` marks it equippable outside the
+  // weapon/armor slots, `charge` is the total battery in seconds (an
+  // "ammo" counter that drains only while active), and `useDur` is how long
+  // a single activation runs before it needs re-triggering. When charge
+  // hits zero mid-run, Character.tick() ends the effect and deletes the
+  // item outright — it does not just go inert in the pack.
+  invisitron: { id: 'invisitron', name: 'Invisitron', weight: 0.8, value: 4200, gadget: true, charge: 720, useDur: 120,
+    desc: 'A shoulder rig that bends light around you well enough to fool most eyes, for a while. Salvage electronics, no maker\'s mark, no manual. Equip it and activate it to fold out of sight for up to two minutes a charge — the counter on the housing is the only part of it anyone has ever fully understood.' },
 });
 
 const ALL_ITEMS = Object.freeze({
@@ -54496,9 +54517,10 @@ class Character {
     this.energy = 100;
 
     this.inv = {};                 // itemId -> count
-    this.equipped = { primary: 'fists', secondary: null, armor: 'jumpsuit' };
+    this.equipped = { primary: 'fists', secondary: null, armor: 'jumpsuit', gadget: null };
     this.loadedAmmo = {};          // weaponId -> rounds in the magazine
     this.condition = {};           // weaponId -> 0..100 wear state
+    this.gadgetCharge = {};        // gadget itemId -> battery seconds remaining
 
     this.rep = {};
     for (const [k, f] of Object.entries(FACTIONS)) this.rep[k] = f.start;
@@ -54716,7 +54738,12 @@ class Character {
     return Math.round(w * 10) / 10;
   }
 
-  overloaded() { return this.carried() > this.carryMax(); }
+  overloaded() {
+    // Weight is still tallied and shown — only the penalty for exceeding it
+    // is switched off, same as every other cheat here.
+    if (__M.cheats && __M.cheats().infiniteCarry) return false;
+    return this.carried() > this.carryMax();
+  }
 
   sequence() { return 2 * this.attr('insight') + (this.mods().derived.init || 0); }
 
@@ -54837,9 +54864,21 @@ class Character {
       this.equipped.primary = id;
     } else if (d.kind === 'armor') {
       this.equipped.armor = id;
+    } else if (d.gadget) {
+      if (this.gadgetCharge[id] === undefined) this.gadgetCharge[id] = d.charge || 0;
+      if (this.gadgetCharge[id] <= 0) return { error: `${d.name} is drained.` };
+      this.equipped.gadget = id;
     } else return false;
     this.dirty();
     return true;
+  }
+
+  unequipGadget() {
+    if (this.equipped.gadget) {
+      this.effects = this.effects.filter((e) => e.id !== `${this.equipped.gadget}_active`);
+      this.equipped.gadget = null;
+      this.dirty();
+    }
   }
 
   weapon() { return WEAPONS[this.equipped.primary] || WEAPONS.fists; }
@@ -55079,6 +55118,24 @@ class Character {
       }
       if (keep.length !== this.effects.length) { this.effects = keep; this.dirty(); }
     }
+    // Gadgets: charge only drains while the thing is actually switched on,
+    // "slowly" relative to how long a single activation lasts. Hitting zero
+    // ends the effect immediately and takes the item with it — it doesn't
+    // linger in the pack dead, it's gone.
+    const gid = this.equipped.gadget;
+    if (gid && this.hasEffect(`${gid}_active`)) {
+      // dtSeconds arrives on the in-world clock (12x real time); charge is
+      // measured in real seconds, so it is converted back down here.
+      const left = Math.max(0, (this.gadgetCharge[gid] ?? 0) - dtSeconds / 12);
+      this.gadgetCharge[gid] = left;
+      if (left <= 0) {
+        this.effects = this.effects.filter((e) => e.id !== `${gid}_active`);
+        this.remove(gid, this.count(gid));
+        delete this.gadgetCharge[gid];
+        this.equipped.gadget = null;
+        this.dirty();
+      }
+    }
     // Survival: a day of walking costs roughly a day's food and rather more
     // water, on their own hourly clock. They must not ride the regeneration
     // tick, which fires every six seconds — that emptied a full stomach in
@@ -55172,7 +55229,7 @@ class Character {
       crippled: this.crippled, inv: this.inv, equipped: this.equipped,
       loadedAmmo: this.loadedAmmo, condition: this.condition, rep: this.rep, kills: this.kills,
       timeSec: this.timeSec, karma: this.karma || 0, energy: this.energy ?? 100, flags: [...this.flagsSet],
-      food: this.food ?? 100, water: this.water ?? 100,
+      food: this.food ?? 100, water: this.water ?? 100, gadgetCharge: this.gadgetCharge,
     };
   }
 
@@ -55184,8 +55241,8 @@ class Character {
       skillPoints: j.skillPoints || 0, perkPicks: j.perkPicks || 0,
       rads: j.rads || 0, poison: j.poison || 0, addiction: j.addiction || {},
       effects: j.effects || [], crippled: j.crippled || { arm: false, leg: false, eye: false },
-      inv: j.inv || {}, equipped: j.equipped || c.equipped, loadedAmmo: j.loadedAmmo || {},
-      condition: j.condition || {},
+      inv: j.inv || {}, equipped: { gadget: null, ...(j.equipped || c.equipped) }, loadedAmmo: j.loadedAmmo || {},
+      condition: j.condition || {}, gadgetCharge: j.gadgetCharge || {},
       rep: { ...c.rep, ...(j.rep || {}) }, kills: j.kills || 0, timeSec: j.timeSec || 0,
       food: j.food ?? 100, water: j.water ?? 100,
     });
@@ -56725,6 +56782,12 @@ const WEAPON_BUILDERS = {
     else ironSights(g, { z: -0.44, rearZ: 0.1, height: 0.044 });
     g.userData.muzzle = new THREE.Vector3(0, 0.048, -0.62);
     g.userData.glow = glowColor;
+    // The top accessory rail on this body sits at y=0.096 (top edge ~0.106),
+    // noticeably higher than the iron sight post's own sightHeight (~0.072).
+    // ADS was lining the little post up with the crosshair while the rail —
+    // the part that actually reads as "the top of the gun" — sat visibly
+    // above it. Anchor ADS to the rail height on the Lance Beam specifically.
+    if (w?.id === 'lancebeam' && !w?.scope) g.userData.sightHeight = 0.106;
     return g;
   },
 
@@ -59326,27 +59389,27 @@ const LOCATIONS = {
         b.sign(sx, z, side === 'e' ? -Math.PI / 2 : Math.PI / 2, label, { w: 3.4, h: 0.9, y: 3.2, color: `#${color.toString(16).padStart(6, '0')}` });
       }
 
-      // The pit — a sunken arena, the town's other economy
-      const pitR = 7.5;
-      const pitFloor = new THREE.Mesh(new THREE.CircleGeometry(pitR, 26), material('dirt', { repeat: 4 }));
-      pitFloor.rotation.x = -Math.PI / 2;
-      pitFloor.position.set(0, -1.6, 20);
-      pitFloor.receiveShadow = true;
-      b.add(pitFloor);
-      const pitWall = new THREE.Mesh(new THREE.CylinderGeometry(pitR, pitR, 1.7, 26, 1, true), material('concrete', { repeat: 6, side: THREE.DoubleSide }));
-      pitWall.position.set(0, -0.75, 20);
-      pitWall.receiveShadow = true;
-      b.add(pitWall);
+      // The ring — a sunken arena, the town's other economy
+      const ringR = 7.5;
+      const ringFloor = new THREE.Mesh(new THREE.CircleGeometry(ringR, 26), material('dirt', { repeat: 4 }));
+      ringFloor.rotation.x = -Math.PI / 2;
+      ringFloor.position.set(0, -1.6, 20);
+      ringFloor.receiveShadow = true;
+      b.add(ringFloor);
+      const ringWall = new THREE.Mesh(new THREE.CylinderGeometry(ringR, ringR, 1.7, 26, 1, true), material('concrete', { repeat: 6, side: THREE.DoubleSide }));
+      ringWall.position.set(0, -0.75, 20);
+      ringWall.receiveShadow = true;
+      b.add(ringWall);
       for (let i = 0; i < 26; i += 1) {
         const a = (i / 26) * Math.PI * 2;
         const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.2, 0.12), material('rustmetal'));
-        post.position.set(Math.cos(a) * (pitR + 0.3), 0.6, 20 + Math.sin(a) * (pitR + 0.3));
+        post.position.set(Math.cos(a) * (ringR + 0.3), 0.6, 20 + Math.sin(a) * (ringR + 0.3));
         b.add(post);
       }
-      b.collide(box(0, 20, pitR * 2.3, pitR * 2.3, 0.1, 1.2));
+      b.collide(box(0, 20, ringR * 2.3, ringR * 2.3, 0.1, 1.2));
       b.lamp(0, 20, 5.4, 0xffdca0, 16, 24);
-      b.sign(0, 12.2, 0, 'The Pit', { w: 3.0, h: 0.9, y: 2.6, color: '#c04a2a' });
-      b.interactables.push({ kind: 'arena', x: 0, z: 13.4, y: 1.2, radius: 3.0, label: 'Pit Fight Registration' });
+      b.sign(0, 12.2, 0, 'The Ring', { w: 3.0, h: 0.9, y: 2.6, color: '#c04a2a' });
+      b.interactables.push({ kind: 'arena', x: 0, z: 13.4, y: 1.2, radius: 3.0, label: 'Ring Fight Registration' });
 
       // Street clutter
       for (let i = 0; i < 26; i += 1) {
@@ -59367,7 +59430,7 @@ const LOCATIONS = {
           { id: 'barkeep_dolan', x: -11, z: 2, rot: -Math.PI / 2 },
           { id: 'doctor_wisp', x: 11.4, z: -14, rot: Math.PI / 2 },
           { id: 'talon_riss', x: 11, z: 3, rot: Math.PI / 2 },
-          { id: 'pitboss_gorr', x: 2.8, z: 13.6, rot: Math.PI },
+          { id: 'ringboss_gorr', x: 2.8, z: 13.6, rot: Math.PI },
           { id: 'sheriff_kade', x: -3.4, z: -20, rot: 0 },
           { id: 'runner_oke', x: -6.4, z: 13.6, rot: Math.PI },
         ],
@@ -61533,7 +61596,7 @@ const ENCOUNTERS = {
       b.wall(0, 23, 22, 'x', 4.0, 'concrete');
       b.wall(-11, 12, 22, 'z', 4.0, 'concrete');
       b.wall(11, 12, 22, 'z', 4.0, 'concrete');
-      // Under the slab of collapsed roadway that roofs this end of the pit.
+      // Under the slab of collapsed roadway that roofs this end of the shaft.
       for (const [x, z] of [[-5, 8], [5, 16]]) b.lamp(x, z, -1.2, 0x8fc4d8, 6, 12, { mount: -0.6 });
       b.pipes(0, 10, 20, 'x', -1.0);
 
@@ -61719,7 +61782,7 @@ const QUESTS = {
     ],
     xp: 1200,
   },
-  vats: {
+  cti: {
     name: 'The CTI Program',
     main: true,
     stages: [
@@ -61743,9 +61806,9 @@ const QUESTS = {
     xp: 300,
     need: [['radward', 3]],
   },
-  pitfight: {
-    name: 'Three Rounds in the Pit',
-    stages: ['Gorr will pay for three rounds in the Pit. No guns.', 'Collect from Gorr.'],
+  ringfight: {
+    name: 'Three Rounds in the Ring',
+    stages: ['Gorr will pay for three rounds in the Ring. No guns.', 'Collect from Gorr.'],
     xp: 700,
   },
   talons: {
@@ -62368,7 +62431,7 @@ const NPCS = {
       handoff: {
         text: 'Say it. …Variants. On the road, in numbers, and organised. I have read every surplus manifest this hole came with and there is nothing in them that makes a thing like that by accident. Somebody is making them, somewhere, on purpose, and they are not slowing down. I cannot send anyone else — there is nobody else. Find out where.',
         options: [
-          { text: 'I’ll find out where.', to: null, act: ['quest:start:vats', 'xp:200'] },
+          { text: 'I’ll find out where.', to: null, act: ['quest:start:cti', 'xp:200'] },
           { text: 'Ask in the settlements first?', to: 'handoff_where' },
         ],
       },
@@ -62386,7 +62449,7 @@ const NPCS = {
       },
       handoff_where: {
         text: 'Start with the traders. Dust Hollow sees the road east, the Nexus sees everything that moves, and the Sepulcher lot have been living next to whatever it is for longer than either. Somebody has seen where they come from.',
-        options: [{ text: 'Then that’s where I start.', to: null, act: ['quest:start:vats', 'xp:200'] }],
+        options: [{ text: 'Then that’s where I start.', to: null, act: ['quest:start:cti', 'xp:200'] }],
       },
     },
     entry(ctx) {
@@ -62615,13 +62678,13 @@ const NPCS = {
       rumour: {
         text: 'The Nexus is buying rations at double last season. That means somebody big is short. And the Sanctum’s been sending robed people through here asking after "the unjoined" — I sell them grain and I do not ask twice.',
         options: [
-          { text: 'The Sanctum?', to: 'sanctum', act: 'quest:start:vats' },
+          { text: 'The Sanctum?', to: 'sanctum', act: 'quest:start:cti' },
           { text: 'Thanks.', to: 'root' },
         ],
       },
       sanctum: {
         text: 'South-east, past the ridge. They take people in and the people who come out are… taller. Wider. Quieter. I mind my own business and you should consider it.',
-        options: [{ text: 'I’ll consider it.', to: 'root', act: 'quest:stage:vats:1' }],
+        options: [{ text: 'I’ll consider it.', to: 'root', act: 'quest:stage:cti:1' }],
       },
     },
   },
@@ -62787,7 +62850,7 @@ const NPCS = {
         options: [{ text: 'Do it tonight.', to: null, act: ['quest:complete:debt_pipe', 'give:crown:220', 'xp:400', 'rep:scrapgate:+14'] }],
       },
       talons: {
-        text: 'Riss runs them out of the yard across the street. Started as escorts. Now it’s "contributions." Kade wears a star and does nothing, because the last sheriff who did something is in the Pit wall.',
+        text: 'Riss runs them out of the yard across the street. Started as escorts. Now it’s "contributions." Kade wears a star and does nothing, because the last sheriff who did something is in the Ring wall.',
         options: [{ text: 'Interesting.', to: 'root', act: 'quest:start:talons' }],
       },
       gamble_win: {
@@ -62860,7 +62923,7 @@ const NPCS = {
         options: [{ text: 'I’ll tell him.', to: null, act: ['quest:stage:talons:1', 'flag:talons_left', 'xp:400', 'rep:scrapgate:+20'] }],
       },
       parley_fail: {
-        text: 'It ends with you in the Pit wall. Get out of my yard.',
+        text: 'It ends with you in the Ring wall. Get out of my yard.',
         options: [{ text: 'Leaving.', to: null, act: 'rep:ashwolf:-10' }],
       },
       join: {
@@ -62870,41 +62933,41 @@ const NPCS = {
     },
   },
 
-  pitboss_gorr: {
-    name: 'Pitboss Gorr', voice: 'raider', faction: 'scrapgate', coat: 0x4a3a2a, skin: 0x7a5a3a,
+  ringboss_gorr: {
+    name: 'Ringboss Gorr', voice: 'raider', faction: 'scrapgate', coat: 0x4a3a2a, skin: 0x7a5a3a,
     nodes: {
       root: {
-        text: 'You’ve got the shoulders for it. Three rounds, no guns, whatever’s in the pit is what you get. Six hundred if you’re standing at the end of the third.',
+        text: 'You’ve got the shoulders for it. Three rounds, no guns, whatever’s in the ring is what you get. Six hundred if you’re standing at the end of the third.',
         options: [
-          { text: 'Sign me up.', to: 'signed', act: 'quest:start:pitfight' },
+          { text: 'Sign me up.', to: 'signed', act: 'quest:start:ringfight' },
           { text: '[Haggling] A thousand.', check: { skill: 'haggling', dc: 60 }, to: 'haggle_pass', fail: 'haggle_fail' },
           { text: 'I like my teeth.', to: null },
         ],
       },
       signed: {
         text: 'Step down when the bell goes. Don’t climb out early — the crowd hates that more than losing.',
-        options: [{ text: 'Understood.', to: null, act: 'flag:pit_registered' }],
+        options: [{ text: 'Understood.', to: null, act: 'flag:ring_registered' }],
       },
       haggle_pass: {
         text: 'A thousand. You’d better bleed impressively for it.',
-        options: [{ text: 'I will.', to: 'signed', act: ['quest:start:pitfight', 'flag:pit_bonus'] }],
+        options: [{ text: 'I will.', to: 'signed', act: ['quest:start:ringfight', 'flag:ring_bonus'] }],
       },
       haggle_fail: {
         text: 'Six hundred. There’s a queue behind you made of people who can count.',
-        options: [{ text: 'Six hundred.', to: 'signed', act: 'quest:start:pitfight' }],
+        options: [{ text: 'Six hundred.', to: 'signed', act: 'quest:start:ringfight' }],
       },
       paid: {
         text: 'Three rounds. Standing. Crowd liked you, which is worth more than the purse — you’ll get a better price on this street now.',
-        options: [{ text: 'Pay up.', to: null, act: ['quest:complete:pitfight', 'give:crown:600', 'rep:scrapgate:+15'] }],
+        options: [{ text: 'Pay up.', to: null, act: ['quest:complete:ringfight', 'give:crown:600', 'rep:scrapgate:+15'] }],
       },
       paid_bonus: {
         text: 'Three rounds, standing, and a thousand tokens lighter than I planned to be. Take it before I remember I’m a businessman.',
-        options: [{ text: 'Obliged.', to: null, act: ['quest:complete:pitfight', 'give:crown:1000', 'rep:scrapgate:+15'] }],
+        options: [{ text: 'Obliged.', to: null, act: ['quest:complete:ringfight', 'give:crown:1000', 'rep:scrapgate:+15'] }],
       },
     },
     entry(ctx) {
-      const q = ctx.quests.pitfight;
-      if (q && q.stage >= 1 && !q.done) return ctx.char.hasFlag('pit_bonus') ? 'paid_bonus' : 'paid';
+      const q = ctx.quests.ringfight;
+      if (q && q.stage >= 1 && !q.done) return ctx.char.hasFlag('ring_bonus') ? 'paid_bonus' : 'paid';
       return 'root';
     },
   },
@@ -63044,7 +63107,7 @@ const NPCS = {
       },
       delivered: {
         text: 'Sealed and unopened. Good. Here — three hundred, and a word: the Sanctum buys rations in volumes that make no sense for a congregation of two dozen. Whatever they’re feeding, it isn’t two dozen mouths.',
-        options: [{ text: 'That’s worth knowing.', to: null, act: ['take:purewater:3', 'quest:complete:caravan', 'give:crown:300', 'quest:start:vats', 'quest:stage:vats:1'] }],
+        options: [{ text: 'That’s worth knowing.', to: null, act: ['take:purewater:3', 'quest:complete:caravan', 'give:crown:300', 'quest:start:cti', 'quest:stage:cti:1'] }],
       },
     },
   },
@@ -63103,15 +63166,15 @@ const NPCS = {
       },
       why: {
         text: 'Because the Sanctum’s catacombs connect to the Arsenal, and the Arsenal is where the Variants are made. Not bred. Made. They call it CTI — Chemical Transformation Injection. A compound on a needle, six days in a strapped chair, and what stands up is not what sat down. The Sanctum is feeding them volunteers.',
-        options: [{ text: 'Then I’ll get your rifle.', to: null, act: ['quest:start:ironvow', 'quest:stage:ironvow:1', 'quest:start:vats', 'quest:stage:vats:2', 'xp:300'] }],
+        options: [{ text: 'Then I’ll get your rifle.', to: null, act: ['quest:start:ironvow', 'quest:stage:ironvow:1', 'quest:start:cti', 'quest:stage:cti:2', 'xp:300'] }],
       },
       sanctum: {
         text: 'A congregation built on a promise of joining through flesh. Their Arbiter is intelligent, patient and entirely sincere, which makes it far more dangerous than a warlord. Do not go there expecting a fanatic.',
-        options: [{ text: 'Noted.', to: 'root', act: 'quest:stage:vats:1' }],
+        options: [{ text: 'Noted.', to: 'root', act: 'quest:stage:cti:1' }],
       },
       delivered: {
         text: 'Intact. Serial legible. Excellent. The sigil is yours — blackened steel, a cog, worn openly. Show it at the catacomb door and the door will agree with you.',
-        options: [{ text: 'Thank you.', to: null, act: ['take:railspike:1', 'quest:complete:ironvow', 'give:vowsigil:1', 'give:crown:800', 'rep:ironvow:+25', 'quest:stage:vats:2'] }],
+        options: [{ text: 'Thank you.', to: null, act: ['take:railspike:1', 'quest:complete:ironvow', 'give:vowsigil:1', 'give:crown:800', 'rep:ironvow:+25', 'quest:stage:cti:2'] }],
       },
     },
   },
@@ -63217,11 +63280,11 @@ const NPCS = {
       },
       sanctum: {
         text: 'Robed ones came three times. They offered us the joining. They meant the needle — the injections that turn a person into a Variant over six days. When we declined the third time they took eleven of us who were tired enough to say yes, and none of them came back as themselves.',
-        options: [{ text: 'I intend to end that.', to: 'end', act: ['quest:start:vats', 'quest:stage:vats:1', 'rep:withered:+8'] }],
+        options: [{ text: 'I intend to end that.', to: 'end', act: ['quest:start:cti', 'quest:stage:cti:1', 'rep:withered:+8'] }],
       },
       end: {
         text: 'Then you will need the Arsenal, not the Sanctum. The injection wards are underground and west. Their Arbiter is a mind that believes it is being kind. Bring it arithmetic, not scripture.',
-        options: [{ text: 'Arithmetic.', to: null, act: 'quest:stage:vats:2' }],
+        options: [{ text: 'Arithmetic.', to: null, act: 'quest:stage:cti:2' }],
       },
       help: {
         text: 'Kill nothing that walks upright here and you will have done more than most. If you have Isotope Blocker to spare, the newer ones still suffer.',
@@ -63259,13 +63322,13 @@ const NPCS = {
       root: {
         text: 'You are smaller than the last one and you arrived without shooting, which is statistically remarkable. I am the Arbiter. I am building a species that cannot make the mistake your species made. You are welcome to join it, or to argue with it. I prefer arguments.',
         options: [
-          { text: 'You’re making Variants.', to: 'vats' },
+          { text: 'You’re making Variants.', to: 'cti' },
           { text: 'Argue for it, then.', to: 'argument' },
           { text: 'I have the CTI Control Log.', req: { item: ['arbiterlog', 1] }, to: 'log' },
           { text: 'Nothing to say to you.', to: null },
         ],
       },
-      vats: {
+      cti: {
         text: 'Chemical Transformation Injection. Six days, a dosed compound, and the body is rewritten to a single pattern. I do not hide the word from you. I am making people who do not require the compromises you require — no hunger you cannot meet, no fear you must be lied to about, no difference to organise a war around. One flesh, one purpose. You call them Variants. They call themselves the first.',
         options: [
           { text: 'They can’t reproduce, can they?', check: { skill: 'technics', dc: 80 }, to: 'sterile_reveal', fail: 'sterile_deny' },
@@ -63277,7 +63340,7 @@ const NPCS = {
         text: 'Your species produced a hundred and twelve thousand warheads and used enough of them to end the argument permanently. I am not proposing tyranny. I am proposing an end to the conditions that make tyranny profitable. If that requires one flesh, then it requires one flesh.',
         options: [
           { text: '[Parley] A joining you impose isn’t a joining. It’s an inventory.', check: { skill: 'parley', dc: 85 }, to: 'parley_pass', fail: 'parley_fail' },
-          { text: 'And if the flesh you chose is a dead end?', to: 'vats' },
+          { text: 'And if the flesh you chose is a dead end?', to: 'cti' },
           { text: 'I’ve heard enough.', to: null },
         ],
       },
@@ -63293,7 +63356,7 @@ const NPCS = {
       },
       sterile_deny: {
         text: 'They are viable. I have verified it. You are guessing, and guessing at me is a poor use of the time you have.',
-        options: [{ text: 'I’ll bring proof.', to: null, act: 'quest:stage:vats:3' }],
+        options: [{ text: 'I’ll bring proof.', to: null, act: 'quest:stage:cti:3' }],
       },
       log: {
         text: 'That is Arsenal telemetry. Give it to me. …This is the tank viability record. Sequential. Nine years of it.',
@@ -63302,13 +63365,13 @@ const NPCS = {
       log_pass: {
         text: 'Zero. Zero. Zero for nine years. Every subject sterile, every generation the last generation. I built a species that ends. …I have been very careful and very wrong, and there is no version of this where I was kind.',
         options: [
-          { text: 'Then stop.', to: 'ending_peace', act: ['flag:arbiter_convinced', 'quest:stage:vats:4', 'xp:2500'] },
-          { text: 'Nothing you do now fixes it.', to: 'ending_peace', act: ['flag:arbiter_convinced', 'quest:stage:vats:4', 'xp:2500'] },
+          { text: 'Then stop.', to: 'ending_peace', act: ['flag:arbiter_convinced', 'quest:stage:cti:4', 'xp:2500'] },
+          { text: 'Nothing you do now fixes it.', to: 'ending_peace', act: ['flag:arbiter_convinced', 'quest:stage:cti:4', 'xp:2500'] },
         ],
       },
       parley_pass: {
         text: 'An inventory. …Yes. I have been counting them, not knowing them. That is the failure mode of every administrator who has ever loved a population. I will hear the rest of your argument, and if you have evidence, bring it — I would rather be corrected than obeyed.',
-        options: [{ text: 'I’ll bring evidence.', to: null, act: ['flag:arbiter_open', 'quest:stage:vats:3', 'xp:700'] }],
+        options: [{ text: 'I’ll bring evidence.', to: null, act: ['flag:arbiter_open', 'quest:stage:cti:3', 'xp:700'] }],
       },
       parley_fail: {
         text: 'You are repeating a sentiment, not making a case. Come back when you have one, or come back armed. Either is honest.',
@@ -63316,7 +63379,7 @@ const NPCS = {
       },
       ending_peace: {
         text: 'I am opening the tanks and venting them. The ones already made will live out their lives here, fed and unbothered, and no more will be made. Take the sigil, take the catacombs, and go tell whoever sent you that the thing in the Sanctum listened.',
-        options: [{ text: 'Goodbye, Arbiter.', to: null, act: ['flag:ending_peace', 'give:vowsigil:1', 'quest:complete:vats'] }],
+        options: [{ text: 'Goodbye, Arbiter.', to: null, act: ['flag:ending_peace', 'give:vowsigil:1', 'quest:complete:cti'] }],
       },
     },
   },
@@ -63334,7 +63397,7 @@ const NPCS = {
       },
       cata: {
         text: 'The joining. Down, and west, and there is a door that needs the sigil. I have not been. Acolytes are not joined until we ask to be, and I have not asked.',
-        options: [{ text: 'Why not?', to: 'doubt' }, { text: 'Thank you.', to: null, act: 'quest:stage:vats:2' }],
+        options: [{ text: 'Why not?', to: 'doubt' }, { text: 'Thank you.', to: null, act: 'quest:stage:cti:2' }],
       },
       doubt: {
         text: 'Because eleven went down last winter and eleven came back and not one of them remembered my name. The Arbiter says memory is a small price. I keep thinking about how it knew my name.',
@@ -63371,7 +63434,7 @@ const NPCS = {
       },
       water: {
         text: 'West. Down the catacomb line in volumes I sign for and never see used. Two hundred crates a month for a congregation that numbers twenty-six. I have stopped asking about that too.',
-        options: [{ text: 'That’s a lot of food.', to: null, act: ['quest:stage:vats:2', 'xp:120'] }],
+        options: [{ text: 'That’s a lot of food.', to: null, act: ['quest:stage:cti:2', 'xp:120'] }],
       },
     },
   },
@@ -63509,16 +63572,16 @@ const NPCS = {
       root: {
         text: 'Sit. Ironhold does not turn people away and it does not hand things out, which people find contradictory until they have sat here a while. The Order recovers what the old world built and keeps it from being used badly a second time. You want something from that shelf. Tell me which shelf.',
         options: [
-          { text: 'There are conversion tanks west of here making people into soldiers.', to: 'vats' },
+          { text: 'There are conversion tanks west of here making people into soldiers.', to: 'cti' },
           { text: 'My bunker is out of food and I need parts.', to: 'water' },
           { text: 'What would you want in return?', to: 'terms' },
           { text: 'Nothing yet.', to: null },
         ],
       },
-      vats: {
+      cti: {
         text: 'We know. We have known for six years and we have done nothing about it, and I would like you to sit with how that sounds before I explain why. We are ninety people with good rifles. Halcyon Arsenal is a hardened installation. Six years of knowing is six years of not having enough hands.',
         options: [
-          { text: 'You have hands now.', to: 'terms', act: ['quest:start:vats', 'quest:stage:vats:2'] },
+          { text: 'You have hands now.', to: 'terms', act: ['quest:start:cti', 'quest:stage:cti:2'] },
           { text: '[Parley] Knowing and not acting is a choice you make daily.', check: { skill: 'parley', dc: 75 }, to: 'stung', fail: 'unmoved' },
         ],
       },
@@ -63596,7 +63659,7 @@ const NPCS = {
       },
       why: {
         text: 'Because the CTI compound that made the Variants was tested somewhere before it was made anywhere, and a proving range logs everything it proves. If Halcyon built it, Kiln fired it first. I would like the receipts.',
-        options: [{ text: 'Then I’ll get them.', to: 'accept', act: ['quest:start:vow_survey', 'quest:stage:vow_survey:1', 'quest:stage:vats:2', 'xp:250'] }],
+        options: [{ text: 'Then I’ll get them.', to: 'accept', act: ['quest:start:vow_survey', 'quest:stage:vow_survey:1', 'quest:stage:cti:2', 'xp:250'] }],
       },
       index: {
         text: 'It is, and it drives me to distraction, and it is that way because the Elder before Mott sorted it that way and re-sorting it means handling nine hundred documents I have already told you not to touch. You have a good eye. Here — this is a duplicate.',
@@ -63627,7 +63690,7 @@ const NPCS = {
       },
       delivered: {
         text: 'Read them to me. — Sequential yield trials, then a gap of eleven months, then biological series. They did not stop testing, they changed what they were testing *on*. That is the receipt. That is exactly the receipt.',
-        options: [{ text: 'Tell the Elder.', to: null, act: ['quest:complete:vow_survey', 'give:crown:600', 'flag:vow_proof', 'rep:ironvow:+20', 'quest:stage:vats:3'] }],
+        options: [{ text: 'Tell the Elder.', to: null, act: ['quest:complete:vow_survey', 'give:crown:600', 'flag:vow_proof', 'rep:ironvow:+20', 'quest:stage:cti:3'] }],
       },
     },
   },
@@ -63758,7 +63821,7 @@ const NPCS = {
       },
       place: {
         text: 'A proving range. They fired things here to find out what the things did. Then, later, they fired things here to find out what the things did to people, and the log does not use a different word for the two, which tells you everything about who was writing it.',
-        options: [{ text: 'That’s grim.', to: 'root', act: 'quest:stage:vats:2' }],
+        options: [{ text: 'That’s grim.', to: 'root', act: 'quest:stage:cti:2' }],
       },
     },
   },
@@ -64005,11 +64068,11 @@ const NPCS = {
       },
       why: {
         text: 'The joining. To be one flesh, and to stop being a person who has to decide things alone. I am told it does not hurt. I am told a great many things and I am walking anyway, which I think is what faith is.',
-        options: [{ text: 'That’s honest, at least.', to: 'root', act: ['quest:stage:vats:1', 'xp:80'] }],
+        options: [{ text: 'That’s honest, at least.', to: 'root', act: ['quest:stage:cti:1', 'xp:80'] }],
       },
       count: {
         text: '…Nine. Nine set out from Longbar in the spring and I do not know where the other five went, and I have not asked the Arbiter because I am afraid the answer is a number it already has. — Please do not repeat that at the Sanctum.',
-        options: [{ text: 'I won’t. Turn around.', to: null, act: ['quest:stage:vats:2', 'xp:250', 'rep:sanctum:-4'] }],
+        options: [{ text: 'I won’t. Turn around.', to: null, act: ['quest:stage:cti:2', 'xp:250', 'rep:sanctum:-4'] }],
       },
       deflect: {
         text: 'As many as chose to. The joining to you, walker.',
@@ -64951,7 +65014,7 @@ const TERMINALS = {
     return {
       title: 'Sanctum Records',
       body: 'INTAKE LEDGER — JOINING\n\nY9: 61 volunteers received. 61 referred to CTI. 0 declined.\nCTI: Chemical Transformation Injection. Six days on the needle. Nobody comes back up the stair.\nRATION REQUISITION: 2,400 crates routed west via catacomb line.\nNOTE (Arbiter): Viability figures from Halcyon remain unavailable. Warden reports "slow start." Query again in 90 days. This is the fourth such query.',
-      choices: [{ label: 'Memorise the requisition route', act: ['quest:stage:vats:2', 'xp:250'] }],
+      choices: [{ label: 'Memorise the requisition route', act: ['quest:stage:cti:2', 'xp:250'] }],
     };
   },
 
@@ -64976,7 +65039,7 @@ const TERMINALS = {
       body: `CREDENTIAL ${hasCard ? 'ACCEPTED' : 'BYPASSED'}\n\nINTERNAL DEFENCE: ARMED\nTANK HALL: SEALED\nREACTOR ANNEX: LOCKED\n\nAutomated sentries respond to any unbadged movement past the central hall.`,
       choices: [
         { label: 'Disarm internal defence grid', act: ['flag:arsenal_disarmed', 'xp:400'] },
-        { label: 'Unseal the tank hall', act: ['flag:vats_open', 'quest:stage:vats:3', 'xp:300'] },
+        { label: 'Unseal the tank hall', act: ['flag:cti_open', 'quest:stage:cti:3', 'xp:300'] },
       ],
     };
   },
@@ -64988,7 +65051,7 @@ const TERMINALS = {
       title: 'CTI Master Control',
       body: 'CHEMICAL TRANSFORMATION INJECTION — PROGRAM SUMMARY\n\nA dosed compound, delivered by needle over six days, that rewrites the recipient’s tissue to a fixed pattern. It is not a cure and it is not reversible. What walks out is a Variant.\n\nCOMPOUND BANK STATUS: 5 ACTIVE\nSUBJECTS INJECTED (LIFETIME): 1,148\nVIABLE SECOND-GENERATION OFFSPRING: 0\n\nThe last column has been zero for nine years. Nobody who could act on that has ever read it.',
       choices: [
-        { label: 'Purge the compound banks', act: ['flag:vats_purged', 'quest:stage:vats:4', 'xp:1200'] },
+        { label: 'Purge the compound banks', act: ['flag:cti_purged', 'quest:stage:cti:4', 'xp:1200'] },
         { label: 'Copy the viability record', act: ['flag:knows_sterile', 'xp:400'] },
       ],
     };
@@ -65038,7 +65101,7 @@ const TERMINALS = {
       title: 'Range Control',
       body: 'KILN FLATS PROVING RANGE — TRIAL LOG (ABRIDGED)\n\nSERIES A — yield trials, 41 entries, ordnance\nSERIES B — yield trials, 63 entries, ordnance\n[GAP: 11 months, no entries]\nSERIES C — 340 entries, BIOLOGICAL, subject viability recorded\nSERIES C, final entry: "Viability holds through first generation. Second generation not observed in any run. Recommend continue."\n\nThey did not stop testing. They changed what they were testing on, and then they recommended continuing.',
       choices: [
-        { label: 'Copy the trial log', act: ['flag:kiln_logged', 'flag:knows_sterile', 'quest:stage:vow_survey:2', 'quest:stage:vats:3', 'xp:700'] },
+        { label: 'Copy the trial log', act: ['flag:kiln_logged', 'flag:knows_sterile', 'quest:stage:vow_survey:2', 'quest:stage:cti:3', 'xp:700'] },
         { label: 'Pull the locker codes off the yield dates', act: ['flag:kiln_codes', 'xp:200'] },
       ],
     };
@@ -65070,7 +65133,7 @@ const TERMINALS = {
     return {
       title: 'Flight Recorder',
       body: 'TRANSPORT — FINAL SEGMENT\n\nRoute: military lift, Halcyon Arsenal → coastal dispersal\nManifest: SEALED, CATEGORY 4, BIOLOGICAL\nCabin, last recorded exchange:\n"Do we know what is in the sealed racks?"\n"We know what the paperwork says."\n"That is not the same answer."\n\nThe aircraft came down on a dry lake with a full load and nobody ever came for the racks.',
-      choices: [{ label: 'Copy the flight record', act: ['flag:lake_read', 'flag:knows_sterile', 'quest:stage:vats:3', 'xp:650'] }],
+      choices: [{ label: 'Copy the flight record', act: ['flag:lake_read', 'flag:knows_sterile', 'quest:stage:cti:3', 'xp:650'] }],
     };
   },
 
@@ -65115,7 +65178,7 @@ const TERMINALS = {
     return {
       title: 'Reactor Override',
       body: 'CONTAINMENT NOMINAL — MANUAL OVERRIDE AVAILABLE\n\nWithdrawing the control assembly will take the containment field down in roughly four minutes. Everything in this installation, including the CTI compound banks, will stop existing.\n\nYou would need to be back up the lift line before then.',
-      choices: [{ label: 'Withdraw the control assembly', act: ['flag:reactor_armed', 'countdown:240', 'quest:stage:vats:4'] }],
+      choices: [{ label: 'Withdraw the control assembly', act: ['flag:reactor_armed', 'countdown:240', 'quest:stage:cti:4'] }],
       danger: true,
     };
   },
@@ -65308,12 +65371,13 @@ const { NPCS } = __M;
 // Rather than hand-maintaining a list that silently rots the moment dialogue
 // changes, derive it: walk every NPC's data — including function bodies,
 // which is where the conditional quest branches live — and flag anyone who
-// touches a main quest or one of its completion flags.
-// Anybody who can start, move or finish *any* quest is load-bearing, not just
-// the two main-line ones. A side quest whose giver caught a stray round is a
-// quest that can never be finished, and a save that quietly lost content is
-// worse than a fight the player was not allowed to win.
-const MAIN_QUEST_RE = /quest:(?:start|stage|done|complete):|aquifer_fitted|vats_purged|\baquifer\b/;
+// touches one of the three main-line quests (aquifer, cti, leak) or one of
+// their completion flags.
+// Side quests are deliberately left out of this: their givers can be killed
+// like any other NPC, and losing access to a side quest that way is an
+// acceptable consequence — only the main line is load-bearing enough to
+// justify making someone unkillable.
+const MAIN_QUEST_RE = /quest:(?:start|stage|done|complete):(?:aquifer|cti|leak)\b|aquifer_fitted|cti_purged|cti_open|leak_closed|\baquifer\b/;
 const ESSENTIAL_NPCS = new Set();
 (function scanEssential() {
   const seen = new Set();
@@ -65395,10 +65459,51 @@ class Actor {
   // Can this actor see the player? Cheap: distance, facing cone, then one ray.
   canSee(ctx, target) {
     const d = this.distanceTo(target);
-    if (d > (this.def.aggro || 25) * (ctx.playerSneaking ? 0.5 : 1)) return false;
+    // Sneaking (crouched, not sprinting) cuts detection range on its own;
+    // a higher Prowl skill cuts it further still — but crouching is what
+    // unlocks the bonus at all, standing up loses it regardless of skill.
+    // Prowl never makes the player undetectable outright, only harder to
+    // notice at any given range. The Invisitron stacks a further cut on
+    // top of whichever of those applies.
+    let rangeMult = 1;
+    if (ctx.playerSneaking) {
+      // Crouching is the single biggest thing a player can do about being
+      // seen, and at range it should be close to decisive. Even an untrained
+      // sneak more than halves how far off something picks them up, and a
+      // maxed Prowl cuts it to a twelfth — meaning a typical hunter with a
+      // 30m aggro radius only notices a crouched expert once they are inside
+      // about two and a half metres.
+      const prowlF = Math.min(1, (ctx.playerProwl || 0) / 100);
+      rangeMult *= Math.max(0.08, 0.42 - prowlF * 0.34);
+    }
+    // The Invisitron is not a range penalty, it is actual invisibility: past
+    // literal arm's reach nothing can see the player at all, so hunters lose
+    // track and break off instead of merely picking you up a bit later.
+    if (ctx.playerInvisible) {
+      if (d > 2.2) return false;
+      rangeMult *= 0.2;
+    }
+    if (d > (this.def.aggro || 25) * rangeMult) return false;
     tmpA.set(target.x - this.pos.x, 0, target.z - this.pos.z).normalize();
     tmpB.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     const dot = tmpA.dot(tmpB);
+    // Approaching from behind while crouched. The old rule only checked
+    // facing for an idle actor beyond 6m, so creeping up on something's back
+    // at close range was spotted anyway no matter how good the player's
+    // Prowl was — the one manoeuvre the skill most obviously ought to buy.
+    // A sneaking player now has a genuine blind arc behind the target at any
+    // distance and in any state, and a widening one at the edges of vision,
+    // both scaling with Prowl. It is still not invisibility: step into the
+    // front arc, or stand up, and the normal checks below apply again.
+    if (ctx.playerSneaking) {
+      const prowlF = Math.min(1, (ctx.playerProwl || 0) / 100);
+      // Behind the shoulders: hidden outright once Prowl is respectable.
+      if (dot < -0.15) return false;
+      // Peripheral vision narrows as Prowl rises, and closes in further the
+      // further away the player is.
+      const periph = -0.15 + (1 - prowlF) * 0.5;
+      if (dot < periph && d > 3 + prowlF * 4) return false;
+    }
     if (this.state === 'idle' && dot < 0.15 && d > 6) return false;
     return !ctx.blocked(this.pos.x, this.pos.y + this.eyeHeight * 0.8, this.pos.z, target.x, target.y + 1.2, target.z);
   }
@@ -65447,7 +65552,15 @@ class Actor {
       if (sees) {
         this.alertT = 2.5;
         this.lastSeen = { x: this._tgtPos.x, z: this._tgtPos.z };
-      } else this.alertT -= dt * (ctx.forgetRate || 1);
+      } else {
+        // Dropping into a crouch and staying out of sight breaks contact
+        // faster, and a high Prowl breaks it faster still — so the skill
+        // helps you disengage, not just avoid being spotted in the first
+        // place.
+        const prowlF = Math.min(1, (ctx.playerProwl || 0) / 100);
+        const sneakForget = ctx.playerSneaking ? 1.6 + prowlF * 1.4 : 1;
+        this.alertT -= dt * (ctx.forgetRate || 1) * sneakForget;
+      }
 
       if (this.state === 'idle' && (sees || this.hurtRecently)) {
         this.state = 'alert';
@@ -65912,7 +66025,15 @@ class Actor {
     let dr = (this.def.dr || 0) / 100;
     if (type === 'emp') dr = this.def.builder === 'robot' ? -0.5 : 0.9;
     if (type === 'fire' && this.def.faction === 'withered') dr -= 0.2;
-    let dealt = Math.max(1, Math.round(Math.max(0, amount - dt) * (1 - Math.max(-1, Math.min(0.92, dr)))));
+    // A called shot in Attack Focus is aimed at a specific part with time
+    // taken over it — it finds the gap in the plate rather than hammering
+    // the front of it. Armour is ignored outright and damage resistance is
+    // cut to a quarter, which is what makes Focus worth the energy even
+    // when the roll doesn't come up critical.
+    let effDt = dt;
+    let effDr = dr;
+    if (opts.focus) { effDt = 0; effDr = Math.min(dr, dr * 0.25); }
+    let dealt = Math.max(1, Math.round(Math.max(0, amount - effDt) * (1 - Math.max(-1, Math.min(0.92, effDr)))));
     // Applied *after* armour, not before. Doubling the raw figure and then
     // subtracting a fixed damage threshold from it lands at more than double
     // — 2.33x against a Ripperclaw — so the switch would not have meant what
@@ -66135,6 +66256,7 @@ class NpcActor {
     ctx.damageNumber?.(this.pos, dealt, opts.critical, this.eyeHeight);
     audio._directHit?.(this.pos, false);
     if (this.hp <= 0) this.die(ctx);
+    else ctx.onNpcAttacked?.(this);
     return dealt;
   }
 
@@ -66890,6 +67012,14 @@ class Player {
     this.char.equipped.primary = w.id;
     if (this.model) this.rig.remove(this.model);
     this.model = buildWeaponModel(w);
+    // buildWeaponModel() pulls its materials from a global cache shared by
+    // every other copy of this weapon in the world (NPC-held ones included),
+    // so mutating opacity directly on them either leaks the change onto
+    // those other copies or gets silently overwritten by something else
+    // touching the same cached material later in the same frame. Cloning
+    // here gives the player's own viewmodel private material instances that
+    // only effects like the Invisitron's cloak fade ever touch.
+    this.model.traverse((o) => { if (o.isMesh && o.material) o.material = o.material.clone(); });
     this.model.position.copy(HIP);
     this.model.rotation.copy(HIP_ROT);
     this.rig.add(this.model);
@@ -67169,6 +67299,45 @@ class Player {
     }
 
     this.syncArms();
+
+    // --- Invisitron: fade the whole viewmodel (arms + weapon) toward
+    // transparent while active, so the player's own view confirms the
+    // cloak actually did something rather than just changing a number
+    // nobody on screen can see. Same opacity-ramp technique the stalker
+    // enemies use, just driven by the player's own effect instead of AI
+    // state.
+    const wantCloak = this.char.hasEffect('invisitron_active') ? 1 : 0;
+    this.cloakT = (this.cloakT ?? 0) + (wantCloak - (this.cloakT ?? 0)) * Math.min(1, dt * 4);
+    if (this.cloakT > 0.002) {
+      this.rig.traverse((o) => {
+        if (o.isMesh && o.material) {
+          // Checked against the material's own state every frame rather than
+          // a one-shot flag: swapping weapons rebuilds the viewmodel with
+          // fresh materials mid-cloak, and anything else that rebuilds or
+          // resets a material would otherwise silently drop the effect and
+          // leave a solid gun floating in a cloaked hand. Flipping
+          // `transparent` needs needsUpdate to recompile the shader — without
+          // it the opacity below is ignored outright.
+          if (!o.material.transparent) {
+            o.material.transparent = true;
+            o.material.depthWrite = false;
+            o.material.needsUpdate = true;
+          }
+          o.material.opacity = 1 - this.cloakT * 0.88;
+        }
+      });
+      this._wasCloaked = true;
+    } else if (this._wasCloaked) {
+      this.rig.traverse((o) => {
+        if (o.isMesh && o.material) {
+          o.material.opacity = 1;
+          o.material.transparent = false;
+          o.material.depthWrite = true;
+          o.material.needsUpdate = true;
+        }
+      });
+      this._wasCloaked = false;
+    }
 
     // --- viewmodel: bob, sway, ADS alignment, recoil
     this.bob += planar * dt * 2.4;
@@ -67505,7 +67674,7 @@ class Player {
 // HUD is the only thing updated per frame and it writes to cached nodes so the
 // render loop never touches layout.
 
-const { ATTRIBUTES, SKILLS, TRAITS, PERKS, WEAPONS, ARMORS, AMMO, CONSUMABLES, MISC, itemDef, CHARGEN_POOL, ATTR_MIN, ATTR_MAX, MAX_TRAITS, TAG_SKILL_COUNT, repTitle, FACTIONS, xpForLevel, SKILL_MAX } = __M;
+const { ATTRIBUTES, SKILLS, TRAITS, PERKS, WEAPONS, ARMORS, AMMO, CONSUMABLES, MISC, ALL_ITEMS, itemDef, CHARGEN_POOL, ATTR_MIN, ATTR_MAX, MAX_TRAITS, TAG_SKILL_COUNT, repTitle, FACTIONS, xpForLevel, SKILL_MAX } = __M;
 const { QUESTS, NPCS, optionAvailable, optionLabel } = __M;
 const { MAP_NODES, MAP_EDGES, LOCATIONS } = __M;
 const { audio } = __M;
@@ -67531,7 +67700,7 @@ const AF_PARTS = {
 // translate; story text, dialogue and item names stay English, since
 // translating the prose is a different project from translating the chrome.
 const LANGS = {
-  en: { resume: 'Resume', character: 'Character', inventory: 'Inventory', objectives: 'Objectives', worldmap: 'World map', savegame: 'Save game', loadgame: 'Load game', options: 'Options', paused: 'Paused', autosave: 'Autosave', language: 'Language', head: 'Head', torso: 'Torso', legs: 'Legs', attack: 'Attack', cancel: 'Cancel', track: 'TRACK', tracked: 'TRACKED', complete: 'COMPLETE', main: 'MAIN', side: 'SIDE', nothingrec: 'Nothing recorded yet.', nosaves: 'No saves found.', nosavesyet: 'No saves yet — use "New save slot" below.', savesub: 'Overwrite an existing slot, or start a new one.', loadsub: 'Choose a save to resume.', newslot: 'New save slot', del: 'Delete', saved: 'Progress saved', loaded: 'Game loaded', autosaved: 'Autosaved', notarget: 'No target in range', noenergy: 'Not enough energy', weaponempty: 'Weapon empty', record: 'Personnel Record', corestats: 'Core Stats', skills: 'Skills', traits: 'Traits', standing: 'Standing', biomarkers: 'BIOMARKERS', move: 'Move', look: 'Look', fire: 'Fire', ads: 'Aim down sights', reload: 'Reload', swapweapon: 'Swap weapon', selectweapon: 'Select weapon', sprint: 'Sprint', crouch: 'Crouch', jump: 'Jump', interact: 'Interact', usemed: 'Use Trauma Kit', repair: 'Field repair', flashlight: 'Flashlight', attackfocus: 'Attack Focus', pause: 'Pause', talkto: 'Talk to', open: 'Open', pick: 'Pick', use: 'Use', empty: 'empty', takeration: 'Take a ration', enterpit: 'Enter the Pit', level: 'Level', experience: 'Experience', health: 'Health', objectivesdone: 'Objectives completed', trade: 'Trade', yourtokens: 'Your tokens' },
+  en: { resume: 'Resume', character: 'Character', inventory: 'Inventory', objectives: 'Objectives', worldmap: 'World map', savegame: 'Save game', loadgame: 'Load game', options: 'Options', paused: 'Paused', autosave: 'Autosave', language: 'Language', head: 'Head', torso: 'Torso', legs: 'Legs', attack: 'Attack', cancel: 'Cancel', track: 'TRACK', tracked: 'TRACKED', complete: 'COMPLETE', main: 'MAIN', side: 'SIDE', nothingrec: 'Nothing recorded yet.', nosaves: 'No saves found.', nosavesyet: 'No saves yet — use "New save slot" below.', savesub: 'Overwrite an existing slot, or start a new one.', loadsub: 'Choose a save to resume.', newslot: 'New save slot', del: 'Delete', saved: 'Progress saved', loaded: 'Game loaded', autosaved: 'Autosaved', notarget: 'No target in range', noenergy: 'Not enough energy', weaponempty: 'Weapon empty', record: 'Personnel Record', corestats: 'Core Stats', skills: 'Skills', traits: 'Traits', standing: 'Standing', biomarkers: 'BIOMARKERS', move: 'Move', look: 'Look', fire: 'Fire', ads: 'Aim down sights', reload: 'Reload', swapweapon: 'Swap weapon', selectweapon: 'Select weapon', sprint: 'Sprint', crouch: 'Crouch', jump: 'Jump', interact: 'Interact', usemed: 'Use Trauma Kit', repair: 'Field repair', flashlight: 'Flashlight', attackfocus: 'Attack Focus', pause: 'Pause', talkto: 'Talk to', open: 'Open', pick: 'Pick', use: 'Use', empty: 'empty', takeration: 'Take a ration', enterring: 'Enter the Ring', level: 'Level', experience: 'Experience', health: 'Health', objectivesdone: 'Objectives completed', trade: 'Trade', yourtokens: 'Your tokens' },
 };
 // Story text passes straight through. Kept as a single call site so the
 // dialogue renderer does not need touching if this ever changes.
@@ -67757,7 +67926,8 @@ class UI {
     if (c.overloaded()) chips.push(['LOAD', 'OVER', 'warn']);
     if (c.crippled.leg) chips.push(['LEG', 'CRIPPLED', 'bad']);
     if (c.crippled.arm) chips.push(['ARM', 'CRIPPLED', 'bad']);
-    for (const e of c.effects) if (!e.id.endsWith('_debt')) chips.push(['CHEM', e.name, 'good']);
+    if (c.hasEffect('invisitron_active')) chips.push(['CLOAK', `${Math.ceil(c.gadgetCharge.invisitron ?? 0)}s`, 'good']);
+    for (const e of c.effects) if (!e.id.endsWith('_debt') && e.id !== 'invisitron_active') chips.push(['CHEM', e.name, 'good']);
     if (c.skillPoints > 0 || c.perkPicks > 0) chips.push(['LVL', 'POINTS READY', 'good']);
     const key = chips.map((x) => x.join()).join('|');
     if (key !== this._chipKey) {
@@ -68060,14 +68230,14 @@ class UI {
     // from. Read from the same function the shot rolls against, so what is
     // shown is what happens.
     const critPct = g.critChanceFor(g.player.weapon(), g.char, {
-      head: !!AF_PARTS[af.part]?.crit, target: af.target,
+      head: !!AF_PARTS[af.part]?.crit, target: af.target, focus: true,
     });
     const crit = el('div', 'focus-crit');
     crit.dataset.tier = critPct >= 50 ? 'high' : critPct >= 25 ? 'mid' : 'low';
     crit.appendChild(el('b', null, 'Critical'));
     crit.appendChild(el('i', null, `${critPct}%`));
     const why = g.critFactors(g.player.weapon(), g.char, {
-      head: !!AF_PARTS[af.part]?.crit, target: af.target,
+      head: !!AF_PARTS[af.part]?.crit, target: af.target, focus: true,
     }).filter(([, v]) => v).map(([k, v]) => `${k} ${v > 0 ? '+' : ''}${v}`).join(' · ');
     crit.appendChild(el('span', null, why));
     host.appendChild(crit);
@@ -68525,8 +68695,8 @@ class UI {
       ['WASD', T('move')], ['Mouse / Arrows', T('look')],
       ['LMB / Space', T('fire')], ['RMB / V', T('ads')],
       ['R', T('reload')], ['T / F', T('swapweapon')], ['1–6', T('selectweapon')],
-      ['Shift', 'Sprint'], ['Ctrl', 'Crouch'], ['Alt', 'Jump'], ['C', 'Attack Focus'],
-      ['E', T('interact')], ['Q', T('usemed')], ['G', T('repair')], ['L', T('flashlight')],
+      ['Shift', 'Sprint'], ['Ctrl', 'Crouch (toggle)'], ['Alt', 'Jump'], ['C', 'Attack Focus'],
+      ['E', T('interact')], ['Q', T('usemed')], ['G', T('repair')], ['L', T('flashlight')], ['H', 'Activate gadget'],
       ['TAB', 'Inventory'], ['B', 'Objectives'], ['M', 'Map'], ['P', 'Character'], ['ENTER', 'Pause'],
       ['F5', 'Quick save'], ['F9', 'Quick load'],
     ]) {
@@ -68738,6 +68908,7 @@ class UI {
       cheat('doubleDamage', 'Enemies do double damage');
       cheat('fastRegen', 'Double-speed health regeneration');
       cheat('doubleSpeed', 'Double walk speed');
+      cheat('infiniteCarry', 'Infinite carry weight (never overloaded)');
 
       // A one-off rather than a toggle: tokens weigh nothing, so there is no
       // encumbrance to worry about and nothing to switch back off.
@@ -68748,6 +68919,110 @@ class UI {
         this.notify('+1,000,000 ration tokens', 'good');
       };
       wrap.appendChild(money);
+
+      // Another one-off: tops every magazine and every reserve stack in one
+      // pass, rather than toggling a state that has to be switched back off.
+      const maxAmmo = el('button', null, 'Max ammo for all weapons');
+      maxAmmo.onclick = () => {
+        const c = this.game.char;
+        for (const w of Object.values(WEAPONS)) {
+          if (w.mag) c.loadedAmmo[w.id] = w.mag;
+          if (w.ammo) {
+            const stack = AMMO[w.ammo]?.stack || 999;
+            c.inv[w.ammo] = Math.max(c.inv[w.ammo] || 0, stack);
+          }
+        }
+        c.dirty();
+        audio.play('ui_accept', { bus: 'ui', volume: 0.3 });
+        this.notify('Every magazine topped off, every reserve stocked.', 'good');
+      };
+      wrap.appendChild(maxAmmo);
+
+      // Core Stats and skills are the numbers picked at character creation;
+      // this maxes both in one pass. Quirks are deliberately left alone —
+      // each pairs a bonus with a real drawback (Reckless takes 35% more
+      // damage for the extra damage it deals, Hexed makes *you* fumble more
+      // too), so granting every one at once wouldn't read as a pure upgrade,
+      // just a pile of contradictory effects.
+      const maxStats = el('button', null, 'Max Core Stats & skills');
+      maxStats.onclick = () => {
+        const c = this.game.char;
+        for (const id of ATTRIBUTES.map((a) => a.id)) c.attrs[id] = ATTR_MAX;
+        for (const id of SKILLS.map((s) => s.id)) c.raw[id] = SKILL_MAX;
+        c.dirty();
+        audio.play('ui_accept', { bus: 'ui', volume: 0.3 });
+        this.notify('Every Core Stat and skill maxed out.', 'good');
+      };
+      wrap.appendChild(maxStats);
+    }
+
+    wrap.appendChild(el('hr'));
+    wrap.appendChild(el('h3', null, 'Weapons & armor'));
+    wrap.appendChild(el('p', 'hint', 'Check an item to drop one into your inventory; uncheck to take it back out. Everything here behaves like anything you found or bought — equip it from the Inventory screen.'));
+    {
+      const char = this.game.char;
+      const itemGrid = (ids, table) => {
+        const grid = el('div', 'modbox-grid');
+        for (const id of ids) {
+          const d = table[id];
+          const row = el('label', null);
+          const i = el('input');
+          i.type = 'checkbox';
+          i.checked = char.count(id) > 0;
+          i.onchange = () => {
+            if (i.checked) {
+              char.add(id, 1);
+              audio.play('ui_accept', { bus: 'ui', volume: 0.2 });
+            } else {
+              char.remove(id, char.count(id));
+              // Unequip anything just removed so gear can't stay strapped on
+              // after it's pulled out of the pack.
+              if (char.equipped.primary === id) char.equipped.primary = 'fists';
+              if (char.equipped.secondary === id) char.equipped.secondary = null;
+              if (char.equipped.armor === id) char.equipped.armor = null;
+              if (char.equipped.gadget === id) char.unequipGadget();
+              char.dirty();
+              audio.play('ui_deny', { bus: 'ui', volume: 0.2 });
+            }
+          };
+          row.appendChild(i);
+          row.appendChild(el('span', null, d.name));
+          grid.appendChild(row);
+        }
+        return grid;
+      };
+      wrap.appendChild(el('p', 'hint', `Weapons (${Object.keys(WEAPONS).length})`));
+      wrap.appendChild(itemGrid(Object.keys(WEAPONS), WEAPONS));
+      wrap.appendChild(el('p', 'hint', `Armor (${Object.keys(ARMORS).length})`));
+      wrap.appendChild(itemGrid(Object.keys(ARMORS), ARMORS));
+
+      // Everything that isn't a weapon or armor — aid, ammunition and misc,
+      // including the Invisitron — gets its own box rather than being
+      // folded into the two above.
+      const itemIds = Object.keys(ALL_ITEMS).filter((id) => !WEAPONS[id] && !ARMORS[id] && id !== 'crown');
+      wrap.appendChild(el('p', 'hint', `Items (${itemIds.length})`));
+      wrap.appendChild(itemGrid(itemIds, ALL_ITEMS));
+
+      // One-off bulk grants rather than more checkboxes: ticking every box
+      // by hand is the whole reason these exist. Each just drops one of
+      // everything into the pack — checkboxes above still work individually
+      // afterward — and re-renders the panel so the boxes catch up.
+      const addAllRow = el('div', 'modbox-actions');
+      const addAllBtn = (label, ids) => {
+        const b = el('button', null, label);
+        b.onclick = () => {
+          for (const id of ids) char.add(id, 1);
+          char.dirty();
+          audio.play('ui_accept', { bus: 'ui', volume: 0.3 });
+          this.notify(`${label}: added one of each (${ids.length}) to your inventory.`, 'good');
+          this.options();
+        };
+        addAllRow.appendChild(b);
+      };
+      addAllBtn('Add all weapons', Object.keys(WEAPONS));
+      addAllBtn('Add all armor', Object.keys(ARMORS));
+      addAllBtn('Add all items', Object.keys(ALL_ITEMS).filter((id) => id !== 'crown'));
+      wrap.appendChild(addAllRow);
     }
 
     wrap.appendChild(el('hr'));
@@ -68965,7 +69240,7 @@ class UI {
       const title = el('div', 'inv-title');
       title.appendChild(el('b', null, d.name));
       if (n > 1) title.appendChild(el('i', 'count', `×${n}`));
-      if (c.equipped.primary === id || c.equipped.armor === id) title.appendChild(el('i', 'equipped', 'EQUIPPED'));
+      if (c.equipped.primary === id || c.equipped.armor === id || c.equipped.gadget === id) title.appendChild(el('i', 'equipped', 'EQUIPPED'));
       main.appendChild(title);
       if (d.desc) main.appendChild(el('p', null, d.desc));
       main.appendChild(el('i', 'stats', this.itemStatLine(d)));
@@ -68986,6 +69261,14 @@ class UI {
       }
       if (d.kind === 'armor') mk('Wear', () => c.equip(id), 'primary');
       if (d.kind === 'consumable') mk('Use', () => { const r = c.useItem(id); this.notify(r.msg, r.ok ? 'good' : 'bad'); audio.play('heal', { bus: 'ui', volume: 0.3 }); }, 'primary');
+      if (d.gadget) {
+        if (c.equipped.gadget === id) {
+          mk('Activate', () => this.game.activateGadget(), 'primary');
+          mk('Unequip', () => c.unequipGadget());
+        } else {
+          mk('Equip', () => { const r = c.equip(id); if (r?.error) this.notify(r.error, 'bad'); }, 'primary');
+        }
+      }
       if (d.study) mk('Read', () => { const r = c.study(id); this.notify(r.msg, 'good'); c.remove(id, 1); });
       if (!d.quest) mk('Drop', () => c.remove(id, 1));
       row.appendChild(acts);
@@ -69012,6 +69295,10 @@ class UI {
     }
     if (d.kind === 'armor') return `DT ${d.dt} · DR ${d.dr.normal}% · ${d.weight}kg · ${d.value}c`;
     if (d.kind === 'ammo') return `${d.weight}kg each · ${d.value}c`;
+    if (d.gadget) {
+      const chg = Math.ceil(this.game.char.gadgetCharge[d.id] ?? d.charge ?? 0);
+      return `Charge ${chg}s · ${d.useDur}s per use · ${d.weight}kg · ${d.value}c`;
+    }
     return `${d.weight || 0}kg · ${d.value || 0}c`;
   }
 
@@ -69623,6 +69910,8 @@ const AF_IMPACT_DELAY = 0.55; // seconds of slowed time before the shot lands
 const AF_HOLD = 0.5;          // seconds of slowed time to hold on the reaction
 const AF_SLOWMO = 0.16;       // time multiplier while the attack plays out
 const AF_ZOOM_FOV = 28;       // degrees — close-up camera field of view
+const AF_DMG_MULT = 8;        // called-shot damage bonus, stacks with the part multiplier below — applies whether or not the hit rolls critical, so a lined-up shot always hits hard
+const AF_CRIT_BONUS = 45;     // flat crit-chance bonus on a landed Attack Focus hit
 const AF_PARTS = {
   head: { label: 'Head', mod: -28, crit: true, dmgMult: 1 },
   torso: { label: 'Torso', mod: 0, crit: false, dmgMult: 1 },
@@ -69978,6 +70267,9 @@ class Game {
           const aid = AMMO_KEYS[Math.floor(rng() * AMMO_KEYS.length)];
           loot.push([aid, Math.max(4, Math.round(60 / Math.sqrt(AMMO[aid].value)))]);
         }
+        // Rare bonus find — deterministic per crate like everything else here,
+        // so it's consistent on repeat visits rather than re-rolling.
+        if (rng() < 0.14) loot.push(['invisitron', 1]);
         this.interactables.push({ kind: 'container', ctype: 'crate', x: cx, z: cz, y: gy + 0.6, radius: 2.2, label: 'Ammo Crate', loot, looted: false, locked: 0, mesh: grp });
       }
 
@@ -70281,7 +70573,7 @@ class Game {
   // =========================================================================
   // Combat
   // =========================================================================
-  rollDamage(w, char, { head = false, distance = 0, target = null } = {}) {
+  rollDamage(w, char, { head = false, distance = 0, target = null, focus = false } = {}) {
     const [lo, hi] = w.dmg;
     let dmg = (lo + Math.random() * (hi - lo)) * (__M.diff ? __M.diff().outgoing : 1);
     const ammo = w.ammo ? AMMO[w.ammo] : null;
@@ -70301,7 +70593,7 @@ class Game {
     if (dtype === 'fire') dmg *= mods.mult.fireDmg ?? 1;
     if (w.blast) dmg *= mods.mult.blastDmg ?? 1;
 
-    const critChance = this.critChanceFor(w, char, { head, target });
+    const critChance = this.critChanceFor(w, char, { head, target, focus });
     const critical = char.flag('slayer') || Math.random() * 100 < critChance;
     if (critical) dmg *= char.critMultiplier();
     if (head) dmg *= char.hasFlag('gameBeaten') ? 2.5 : 2;
@@ -70317,20 +70609,23 @@ class Game {
   // has noticed them yet. Everything that moves this number is either a
   // character decision or a thing happening in the world; nothing is random
   // except the roll itself.
-  critChanceFor(w, char, { head = false, target = null } = {}) {
+  critChanceFor(w, char, { head = false, target = null, focus = false } = {}) {
     const mods = char.mods();
     let c = char.critChance() + (w.crit || 0);
     if (head) c += 22;                                  // a called shot at the head
     if (mods.flags.sniper && head) c += 20;             // Long Sight
     // A target that has not seen you yet is not moving away from the shot.
     if (target && !target.dead && (target.alertT ?? 0) <= 0 && target.state !== 'attack') c += 15;
+    // A lined-up Attack Focus shot that actually connects is as close to a
+    // sure thing as the game offers — the whole point of taking the time.
+    if (focus) c += AF_CRIT_BONUS;
     if (char.flag('slayer')) return 100;                // every hit, by perk
     return clamp(Math.round(c), 0, 95);
   }
 
   // Why that number is what it is, for the readout. Only terms that are
   // actually contributing are listed.
-  critFactors(w, char, { head = false, target = null } = {}) {
+  critFactors(w, char, { head = false, target = null, focus = false } = {}) {
     const mods = char.mods();
     const out = [];
     out.push(['Base', char.critChance()]);
@@ -70338,6 +70633,7 @@ class Game {
     if (head) out.push(['Called shot', 22]);
     if (mods.flags.sniper && head) out.push(['Long Sight', 20]);
     if (target && !target.dead && (target.alertT ?? 0) <= 0 && target.state !== 'attack') out.push(['Unaware', 15]);
+    if (focus) out.push(['Attack Focus', AF_CRIT_BONUS]);
     return out;
   }
 
@@ -70934,6 +71230,8 @@ class Game {
         colliders: this.colliders,
         get alarm() { return this.game.alarm; },
         get playerSneaking() { return this.game.player.crouch && Math.hypot(this.game.player.vel.x, this.game.player.vel.z) < 2; },
+        get playerProwl() { return this.game.char.skill('prowl'); },
+        get playerInvisible() { return this.game.char.hasEffect('invisitron_active'); },
         // How fast a hunter gives up once it loses sight of you. Shade doubles
         // it; before, the perk's multiplier was read by nothing.
         get forgetRate() { return this.game.char.mods().mult.stealth ?? 1; },
@@ -70948,6 +71246,7 @@ class Game {
         damageNumber: (pos, amount, crit, h) => this.ui.damageNumber(pos, amount, crit, h),
         onKill: (actor) => this.onKill(actor),
         onNpcKill: (npc) => this.onNpcKill(npc),
+        onNpcAttacked: (npc) => this.onNpcAttacked(npc),
         bloodBurst: (pos, def, f) => this.spawnBloodBurst(pos, def, f),
         get gore() { return this.game.settings.gore !== false; },
         gibBurst: (pos, n, def) => this.spawnGibBurst(pos, n, def),
@@ -70979,6 +71278,20 @@ class Game {
       this.ui.notify(`${npc.def.name} is dead.`, 'bad');
     }
     if (this._talkingTo === npc.npcId) { this._talkingTo = null; this.ui.closePanel(); }
+  }
+
+  // Landing a hit is enough — their faction doesn't wait around to see
+  // whether you meant to finish the job. Death has its own message via
+  // onNpcKill, so this only fires when the NPC survives the hit.
+  onNpcAttacked(npc) {
+    if (npc.hostile) return; // already fighting you; nothing new to report
+    this.char.karma = Math.max(-100, (this.char.karma || 0) - 8);
+    const faction = npc.def.faction || 'settlers';
+    if (this.revolted.includes(faction)) { npc.hostile = true; return; }
+    this.revolted.push(faction);
+    this.ui.notify(`${npc.def.name} is hit. The ${faction} turn against you.`, 'bad');
+    this.applyRevolts();
+    this.spawnAvengers(npc.pos);
   }
 
   // Throttled: a burst of automatic fire into someone unkillable shouldn't
@@ -71055,6 +71368,10 @@ class Game {
     this.char.kills += 1;
     this.awardXp(actor.def.xp || 10);
     const loot = actor.lootTable();
+    // A rare bonus drop independent of any one creature's table, so the
+    // Invisitron keeps turning up throughout the game rather than being
+    // tied to one enemy type or location.
+    if (Math.random() < 0.03) loot.push(['invisitron', 1]);
     if (loot.length) {
       const scrounge = this.char.mods().mult.ammoFind ?? 1;
       const scaled = loot.map(([id, n]) => {
@@ -71171,10 +71488,16 @@ class Game {
     const w = p.weapon();
     const dist = Math.hypot(target.pos.x - p.pos.x, target.pos.z - p.pos.z);
     const skill = this.char.skill(w.skill || 'sidearms');
-    let chance = 30 + skill * 0.6;
-    const eff = p.effectiveRange();
-    if (dist > eff) chance -= (dist - eff) * 2.2;
-    else chance += Math.min(10, (eff - dist) * 0.3);
+    // Distance is the main lever on this roll now. maxRange mirrors the same
+    // cutoff findAttackFocusTargets() uses to decide what's targetable at
+    // all (AF_MAX_RANGE for anything ranged, this weapon's reach for melee),
+    // so distFactor is a clean 1 (point-blank) down to 0 (right at the edge
+    // of that range). Skill still adds up to +50 at SKILL_MAX (200), but it
+    // can no longer saturate the 95 cap by itself at long range the way the
+    // old `30 + skill * 0.6` did.
+    const maxRange = w.cls === 'melee' ? (w.reach || 2) + 0.4 : AF_MAX_RANGE;
+    const distFactor = clamp(1 - dist / maxRange, 0, 1);
+    let chance = 15 + skill * 0.25 + distFactor * 60;
     chance += AF_PARTS[partId]?.mod ?? 0;
     return clamp(Math.round(chance), 5, 95);
   }
@@ -71229,7 +71552,7 @@ class Game {
     this.highlightTarget(af.target);
     af.chance = this.attackFocusPartChance(af.target, af.part);
     af.critChance = this.critChanceFor(this.player.weapon(), this.char, {
-      head: !!AF_PARTS[af.part]?.crit, target: af.target,
+      head: !!AF_PARTS[af.part]?.crit, target: af.target, focus: true,
     });
     af.hit = Math.random() * 100 < af.chance;
     this.ui.closeAttackFocus();
@@ -71290,10 +71613,16 @@ class Game {
     const { dmg, critical } = this.rollDamage(w, this.char, {
       head: !!partDef.crit,
       target,
+      focus: true,
       distance: Math.hypot(target.pos.x - p.pos.x, target.pos.z - p.pos.z),
     });
-    const dealt = Math.round(dmg * (partDef.dmgMult ?? 1));
-    target.takeDamage(dealt, weaponDamageType(w), this.actorCtx(), { critical, w, head: !!partDef.crit, part });
+    let dealt = Math.round(dmg * (partDef.dmgMult ?? 1) * AF_DMG_MULT);
+    // A called shot always means something. Without a floor the whole
+    // manoeuvre is only as good as whatever is in your hands, so a weak or
+    // worn weapon spent the energy for a scratch. Anything aimed this
+    // deliberately takes a real bite out of the target regardless.
+    dealt = Math.max(dealt, Math.round((target.def?.hp || 20) * (partDef.crit ? 0.9 : 0.55)));
+    target.takeDamage(dealt, weaponDamageType(w), this.actorCtx(), { critical, w, head: !!partDef.crit, part: af.part, focus: true });
     // Whether the critical the panel offered actually landed. The chance is
     // quoted back so the player can see the roll they were given.
     this.ui.focusResult({
@@ -71432,7 +71761,7 @@ class Game {
     // Once the game has been won, later quest completions (side content
     // finished after the fact) must not pop the ending screen again.
     if (c.hasFlag('gameBeaten')) return;
-    if (c.hasFlag('ending_peace') || c.hasFlag('vats_purged')) {
+    if (c.hasFlag('ending_peace') || c.hasFlag('cti_purged')) {
       if (c.hasFlag('aquifer_fitted')) this.win('The Long Road', 'Bunker 100 eats, and the tanks are finished. Two problems that were never the same problem, solved by the same pair of boots. The Director writes your name in the log without a number after it.');
       else this.win('The Tanks Are Cold', 'The tanks are cold and nothing new will crawl out of them. Somewhere behind you a bunker is still counting days it does not have — but this, at least, is done.');
     }
@@ -71601,7 +71930,7 @@ class Game {
         ? `[E] Fill a bottle — ${it.label}`
         : `[E] ${__M.T('takeration')}`);
     }
-    if (it.kind === 'arena') return this.ui.setPrompt(`[E] ${__M.T('enterpit')}`);
+    if (it.kind === 'arena') return this.ui.setPrompt(`[E] ${__M.T('enterring')}`);
     if (it.kind === 'continue') return this.ui.setPrompt(`[E] ${it.label}`);
     return this.ui.setPrompt(`[E] ${__M.T('use')} ${it.label}`);
   }
@@ -71733,15 +72062,15 @@ class Game {
   }
 
   startArena() {
-    if (!this.char.hasFlag('pit_registered')) return this.ui.notify('Speak to Gorr first.', 'bad');
-    if (this.char.hasFlag('pit_done')) return this.ui.notify('You already fought your three.', '');
-    this.char.setFlag('pit_done');
+    if (!this.char.hasFlag('ring_registered')) return this.ui.notify('Speak to Gorr first.', 'bad');
+    if (this.char.hasFlag('ring_done')) return this.ui.notify('You already fought your three.', '');
+    this.char.setFlag('ring_done');
     this.ui.notify('Three rounds. No guns.', 'bad');
     const waves = [['scraphound', 2], ['blademan', 2], ['ashwolfvet', 1]];
     // The rounds arrive on a real-time timer. If the player has walked out of
     // Scrapgate — or died and been restored — in the twenty-eight seconds the
     // three waves take, the fight must not follow them into whatever map they
-    // are standing in now, which is how a Pit bout used to end up spawning
+    // are standing in now, which is how a Ring bout used to end up spawning
     // Blade Mantises into the middle of Bunker 100.
     const arenaLoc = this.locationId;
     const token = (this._arenaToken = (this._arenaToken || 0) + 1);
@@ -71760,7 +72089,7 @@ class Game {
       }, delay);
       delay += 14000;
     }
-    this.setQuestStage('pitfight', 1);
+    this.setQuestStage('ringfight', 1);
   }
 
   // =========================================================================
@@ -71916,9 +72245,10 @@ class Game {
       if (k === 'p') this.togglePanel('character');
       if (k === 'q') this.quickHeal();
       if (k === 'c') this.toggleAttackFocus();
-      if (k === 'control') this.input.crouchHeld = true;
+      if (k === 'control') this.input.crouch = !this.input.crouch;
       if (k === 'f' || k === 't') this.cycleWeapon();
       if (k === 'g') this.repairWeapon();
+      if (k === 'h') this.activateGadget();
       if (k === 'l') this.player?.toggleFlashlight();
       if (/^[1-6]$/.test(k)) this.selectSlot(Number(k) - 1);
     };
@@ -71927,7 +72257,6 @@ class Game {
       keys.delete(k);
       if (k === ' ') this.input.fire = false;
       if (k === 'v' && this.settings.holdAds) this.input.ads = false;
-      if (k === 'control') this.input.crouchHeld = false;
       if (k === 'j' || k === 'alt') this.input.jump = false;
     };
     window.addEventListener('keydown', down);
@@ -72229,6 +72558,36 @@ class Game {
       }
     }
     this.ui.notify('Nothing to treat yourself with', 'bad');
+  }
+
+  activateGadget() {
+    const c = this.char;
+    const id = c.equipped.gadget;
+    if (!id) return this.ui.notify('No gadget equipped', 'bad');
+    const d = itemDef(id);
+    const activeId = `${id}_active`;
+    if (c.hasEffect(activeId)) return this.ui.notify(`${d.name} already engaged`, '');
+    const charge = c.gadgetCharge[id] ?? d.charge ?? 0;
+    if (charge <= 0) return this.ui.notify(`${d.name} is drained`, 'bad');
+    const dur = Math.min(d.useDur || 120, charge);
+    // Effects expire against the character's in-world clock, which advances
+    // 12 in-world seconds per real second. The gadget's charge and duration
+    // are written in *real* seconds — two minutes should be two minutes at
+    // the keyboard — so the deadline is scaled up to match the clock it is
+    // measured against.
+    c.effects.push({ id: activeId, name: d.name, until: c.timeSec + dur * 12, mods: {} });
+    c.dirty();
+    // Anything already hunting the player loses the thread the instant the
+    // field comes up, rather than continuing to close on a last-known
+    // position it can no longer confirm.
+    for (const a of this.actors || []) {
+      if (a.dead || a.companion) continue;
+      a.alertT = 0;
+      a.lastSeen = null;
+      if (a.state === 'attack' || a.state === 'alert') { a.state = 'idle'; a.stateT = 0; }
+    }
+    audio.play('ui_accept', { bus: 'ui', volume: 0.4 });
+    this.ui.notify(`${d.name} engaged — folding out of sight.`, 'good');
   }
 
   togglePanel(which) {
@@ -72945,7 +73304,7 @@ class Game {
         { loc: 'vault100', term: 'purifier' },
         null,
       ],
-      vats: [
+      cti: [
         { loc: 'dusthollow', npc: 'trader_pell' },
         { loc: 'sanctum', npc: 'acolyte_sim' },
         { loc: 'arsenal', term: 'arsenal_security' },
@@ -72960,9 +73319,9 @@ class Game {
         { loc: 'dusthollow', npc: 'healer_orin' },
         { loc: 'dusthollow', npc: 'healer_orin' },
       ],
-      pitfight: [
-        { loc: 'scrapgate', cont: 'Pit Fight Registration' },
-        { loc: 'scrapgate', npc: 'pitboss_gorr' },
+      ringfight: [
+        { loc: 'scrapgate', cont: 'Ring Fight Registration' },
+        { loc: 'scrapgate', npc: 'ringboss_gorr' },
       ],
       talons: [
         { loc: 'scrapgate', npc: 'talon_riss' },
@@ -73903,7 +74262,7 @@ class Game {
 
   reactorBlows() {
     const inArsenal = this.locationId === 'arsenal';
-    this.char.setFlag('vats_purged');
+    this.char.setFlag('cti_purged');
     this.countdownT = 0;
     if (inArsenal) {
       this.paused = true;
@@ -73913,8 +74272,8 @@ class Game {
     }
     audio.play('explode', { volume: 0.9 });
     this.ui.notify('A dull thump rolls across the Dust Sea. The Arsenal is gone.', 'good');
-    this.setQuestStage('vats', 4);
-    this.completeQuest('vats');
+    this.setQuestStage('cti', 4);
+    this.completeQuest('cti');
   }
 
   // Dying rolls the run back to the most recent save rather than ending it.
