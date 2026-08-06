@@ -1,4 +1,4 @@
-v1.07 Alpha
+v1.08 Alpha
 
 A gritty, late-90s inspired post-apocalyptic tactical RPG and first-person shooter set within the unforgiving ruins of the Dust Sea. Built natively for the web.
 
